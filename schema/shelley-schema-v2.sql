@@ -1,0 +1,531 @@
+------------------------------------------------------------
+--
+-- Schema to store blocks for the Shelley era of the Cardano chain in a PostgreSQL database.
+-- This schema is based on that for the Byron era, but for Shelley era blocks only.
+--
+-- Kevin Hammond, IOHK
+--       2020-04-10   KH        Adapted Byron version
+--       2020-04-13   KH        Created Shelley-only version
+--       2020-04-14   KH        Updated types and included transaction metadata
+--
+------------------------------------------------------------
+
+
+
+------------------------------------------------------------
+-- Key open issues
+--
+--   1.  Do we need historic data for pool registrations etc. or just live information?
+--   2.  Are withdrawals needed in the transactions?
+--   3.  Are there other forms of transaction metadata that need to be recorded?
+--   4.  Do we need to record protocol parameter changes
+--   5.  Can script and key hashes be treated identically (address hashes are a different size)
+--   6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
+--   7.  Are signatures variable sized?
+--   8.  Are there additional constraints on data formats that should be included in the schema (e.g. data ranges)
+--   0.  Are alternatives handled correctly?  Is there a better way to do this
+--
+------------------------------------------------------------
+
+
+----------------------------------------
+--
+-- Basic Type Definitions
+--
+----------------------------------------
+
+-- Coin values in Lovelace.
+CREATE DOMAIN lovelace AS bigint
+  CHECK (VALUE >= 0 AND VALUE <= 45000000000000000);
+
+-- Unsigned (non-negative) integers, used in many places.
+CREATE DOMAIN uinteger AS integer
+  CHECK (VALUE >= 0);
+
+-- Positive integers.
+CREATE DOMAIN natural AS integer
+  CHECK (VALUE > 0);
+
+
+CREATE TYPE interval (
+   min   uinteger       NOT NULL,
+   max   uinteger       NOT NULL
+   );
+
+CREATE TYPE rational (
+   num      uinteger    NOT NULL,
+   denom    natural     NOT NULL
+   );
+
+-- To do: check this is correct syntax
+CREATE DOMAIN nonce as hash;
+
+
+----------------------------------------
+--
+-- Address and Key Hashes
+--
+----------------------------------------
+
+
+-- Many entities are identified by hash. Most hashes are 256bit, 32bytes.
+CREATE DOMAIN hash AS bytea
+  CHECK (octet_length (VALUE) = 32);
+
+
+-- Address hashes are, however, 224bit, 28bytes.
+CREATE DOMAIN addr_hash AS bytea
+  CHECK (octet_length (VALUE) = 28);
+
+
+-- NEW for SHELLEY
+-- Used to separate address hashes for semantic reasons
+-- The hashes are credentials, which may be either key hashes or script hashes
+-- To do: Are these hashes or addr_hashes?
+
+CREATE DOMAIN payment_addr_hash AS hash;
+CREATE DOMAIN staking_addr_hash AS hash;
+CREATE DOMAIN script_hash AS hash;
+
+
+-- NEW for SHELLEY.
+-- Base addresses
+-- To do: do we also need pointer addresses?  Do we need to distinguish script addresses from other addresses?
+CREATE TYPE base_address (
+   payment_address payment_addr_hash NOT NULL,
+   staking_address staking_addr_hash                -- NULL for bootstrap addresses and enterprise addresses
+   );
+   
+
+----------------------------------------
+--
+-- Certificates and Signatures
+--
+----------------------------------------
+
+-- NEW for SHELLEY: operational certificates.
+CREATE TYPE operational_certificate (
+    hot_vkey        hash PRIMARY KEY,               -- KES key hash
+    sequence_number uinteger NOT NULL,
+    kes_period      uinteger NOT NULL,
+    sigma           signature
+  );
+
+
+-- NEW for SHELLEY: VRF certificates. To do: what are the fields?
+CREATE TYPE vrf_certificate (
+    vrf1           uinteger  NOT NULL,
+    vrf2           integer   NOT NULL,
+    vrf3           natural   NOT NULL
+  );
+
+
+-- NEW for SHELLEY: signatures.
+-- To do: is this really variable sized?
+CREATE DOMAIN signature AS bytea;
+
+
+
+----------------------------------------
+--
+-- Other Types used with Transactions
+--
+----------------------------------------
+
+-- Transactions contain lists of input and lists of outputs.
+-- So we can identify these elements by the 0-based index within the list.
+-- To do: confirm limit
+CREATE DOMAIN txindex AS smallint
+  CHECK (VALUE >= 0 AND VALUE < 1024);
+
+-- NEW for SHELLEY: protocol version. To do: confirm that this is needed in the database
+CREATE TYPE protocol_version (
+  major     uinteger,
+  minor     uinteger
+  );
+
+
+----------------------------------------
+--
+-- Schema Version
+--
+----------------------------------------
+
+-- Schema version number. There should only ever be a single row in this table.
+-- UNCHANGED FOR SHELLEY
+CREATE TABLE version (
+  number      uinteger
+);
+
+
+
+----------------------------------------
+--
+-- Blocks
+--
+----------------------------------------
+
+
+-- SHELLEY only - no NULL blocks
+CREATE TABLE blocks (
+  blockid          hash                 PRIMARY KEY,    -- PRIMARY KEY implies UNIQUE and NOT NULL.
+  header           block_header         NOT NULL,
+  );
+
+
+-- Could be rolled into block
+CREATE TYPE block_header (
+   -- header body
+  slot_no          uinteger          NOT NULL,                
+
+  block_no         uinteger          NOT NULL,
+
+  previous         hash
+      REFERENCES blocks (blockid),                    -- Needs to be NULL-able because the first block has a previous
+                                                      -- hash which does not exist in this table.
+
+  block_issuer     hash              NOT NULL,				-- SHELLEY: Which pool produced the block.
+  vrfKey           hash              NOT NULL,        -- SHELLEY: VRF verification key
+
+  nonce_vrf        vrf_certificate   NOT NULL,        -- SHELLEY: nonce proof
+  leader_vrf       vef_certificate   NOT NULL,        -- SHELLEY: leader election value
+
+  op_cert          operational_certificate NOT NULL,  -- SHELLEY: operational certificate
+  proto_version    protocol_version  NOT NULL,        -- SHELLEY: protocol version
+
+  merkle_root      hash,                              -- Needs to be NULL-able so we can store EBBs. Equivalent to block body hash in SHELLEY?
+  size             uinteger          NOT NULL,        -- Block size in bytes.
+
+   -- signature
+   body_signature        signature   NOT NULL         -- KES signature -- To do: check this is correct
+);
+
+
+----------------------------------------
+--
+-- Transactions
+--
+----------------------------------------
+
+
+-- Transaction Body
+-- ADDED metadata/hash and certificates for SHELLEY.
+-- TTL (time to live) is not included since the transaction will only be on the chain if it has succeeded
+-- May need to add payment verification key map, and script map.
+-- Note that if one of tx_md_hash and tx_metadata is NULL, then so will the other.
+-- Optional protocol parameter updates are not included - they are recorded separately
+-- Do we need withdrawals in the database?
+
+CREATE TABLE txs (
+  txid            hash                   PRIMARY KEY,
+  in_blockid      hash                   NOT NULL REFERENCES blocks (blockid) ON DELETE CASCADE,
+  
+  fee             lovelace               NOT NULL,
+  withdrawals     withdrawal ARRAY,                         -- Is this needed?
+  metadata        tx_metadata                               -- transaction metadata hash
+);
+
+
+
+-- NEW for SHELLEY: Transaction Witnesses
+
+CREATE TYPE witness (
+  vkeywitness     vkeywitness,                               -- one of the two witnesses will be present, but not both
+  scriptwitness   script,                                     -- " --
+  in_txid         hash                   PRIMARY KEY REFERENCES txs (txid) ON DELETE CASCADE
+  );
+
+CREATE TYPE vkeywitness (
+  vkey            uinteger      NOT NULL,                    -- either (vkey and sig) or script will be present, but not both
+  sig             signature     NOT NULL,
+  );
+ 
+
+-- NEW for SHELLEY: transaction metadata.
+-- To Do: there are additional types of metadata - are theze needed?
+CREATE TYPE tx_metadata (
+    label         uinteger         NOT NULL,
+    metadata      bytemetadata     NOT NULL
+    );
+
+-- URL for description.
+CREATE DOMAIN bytemetadata AS bytea
+  CHECK (octet_length (VALUE) = 64);
+
+
+-- Transaction output
+-- output address changed to base address type FOR SHELLEY
+
+CREATE TABLE txouts (
+  in_txid      hash     REFERENCES txs (txid) ON DELETE CASCADE,
+  index        txindex,
+  address      base_address     NOT NULL,
+  value        lovelace NOT NULL,
+
+  PRIMARY KEY (in_txid, index)
+);
+
+
+-- Transaction input
+-- UNCHANGED FOR SHELLEY
+
+CREATE TABLE txins (
+  in_txid      hash     REFERENCES txs (txid) ON DELETE CASCADE,
+  index        txindex,
+  txout_txid   hash     NOT NULL,
+  txout_index  txindex  NOT NULL,
+
+  PRIMARY KEY (in_txid, index),
+  FOREIGN KEY (txout_txid, txout_index)
+    REFERENCES txouts (in_txid, index)
+);
+
+
+-- UTxO
+-- UNCHANGED FOR SHELLEY
+
+CREATE TABLE utxo (
+  txid         hash ,
+  index        txindex,
+
+  PRIMARY KEY (txid, index),
+  FOREIGN KEY (txid, index)
+    REFERENCES txouts (in_txid, index)
+);
+
+
+-- Resolved transaction input - which transaction inputs appear in the transaction output
+-- UNCHANGED FOR SHELLEY
+
+CREATE VIEW txins_resolved AS
+  SELECT txins.*,
+         address,
+         value
+  FROM txins INNER JOIN txouts ON
+       (txins.txout_txid  = txouts.in_txid AND
+        txins.txout_index = txouts.index);
+
+
+-- Resolved UTXO - which UTXOs appear in the transaction output
+-- UNCHANGED FOR SHELLEY
+
+CREATE VIEW utxo_resolved AS
+  SELECT utxo.*,
+         address,
+         value
+  FROM utxo INNER JOIN txouts ON
+       (utxo.txid  = txouts.in_txid AND
+        utxo.index = txouts.index);
+
+
+----------------------------------------
+--
+-- Withdrawals
+--
+----------------------------------------
+
+
+-- NEW for Shelley
+-- Merges key and script hashs
+
+CREATE TYPE withdrawal (
+       from            hash NOT NULL         -- may be either script or key
+       amount          lovelace NOT NULL     -- amount withdrawn
+   );
+
+
+----------------------------------------
+--
+-- Treasury and Reserves
+--
+----------------------------------------
+
+-- NEW for SHELLEY
+-- This records the total value of the treasury and reserves at the beginning of the specified epoch.
+
+CREATE TABLE central_funds (
+   epoch_no           uinteger PRIMARY KEY,
+   treasury           lovelace NOT NULL,
+   reserves           lovelace NOT NULL
+   );
+
+
+----------------------------------------
+--
+-- Rewards and Delegation
+--
+----------------------------------------
+
+
+-- NEW for SHELLEY
+-- Basic rewards data.
+-- What reward has been earned in the epoch by delegating to the specified pool id.
+-- This design allows rewards to be discriminated based on how they are earned.
+
+CREATE TABLE rewards (
+   rewards_address      staking_addr_hash NOT NULL,
+   pool_id              hash,                       -- NULL means an instantaneous reward from the treasury
+   epoch_no             uinteger NOT NULL,
+   reward               lovelace NOT NULL,
+
+   PRIMARY KEY (rewards_address,pool_id,epoch_no) -- doens't work for instantaneous rewards - pool_id is NULL
+   );
+
+
+-- NEW for SHELLEY
+-- Basic delegation data.
+-- What has been delegated to a pool and when.  Where will the rewards be recorded.
+-- The epoch can be deduced from the unique slot number.
+-- Note the overlap with the rewards table in the first two fields.
+
+CREATE TABLE delegation (
+   rewards_address      staking_addr_hash  NOT NULL,
+   pool_id              hash               NOT NULL,
+   slot_no              uinteger           NOT NULL,      -- technically redundant
+   amount               lovelace           NOT NULL,
+   in_tx                hash               NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
+
+   PRIMARY KEY (rewards_address,pool_id,in_tx)
+   );
+
+
+-- NEW for SHELLEY
+-- When was a staking key registered
+
+CREATE TABLE stake_key_registration (
+   stakekey_address     staking_addr_hash NOT NULL,
+   slot_no              uinteger          NOT NULL,            -- could also be a block id
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+
+   PRIMARY KEY (stake_key_hash,in_tx)
+   );
+
+
+-- NEW for SHELLEY
+-- When was a staking key unregistered
+
+CREATE TABLE stake_key_deregistration (
+   stakekey_address     staking_addr_hash PRIMARY KEY,
+   slot_no              uinteger          NOT NULL,            -- could also be a block id
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+
+   PRIMARY KEY (stake_key_hash,in_tx)
+   );
+
+
+-- NEW for SHELLEY
+-- When was a script registered
+
+CREATE TABLE script_registration (
+   script_address       script_hash       NOT NULL,
+   slot_no              uinteger          NOT NULL,            -- could also be a block id
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+
+   PRIMARY KEY (script_address,in_tx)
+   );
+
+
+-- NEW for SHELLEY
+-- When was a script unregistered
+
+CREATE TABLE script_deregistration (
+   script_address       script_hash       NOT NULL,
+   slot_no              uinteger          NOT NULL,            -- could also be a block id
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+
+   PRIMARY KEY (script_address,in_tx)
+   );
+
+
+-- NEW for SHELLEY
+-- Parameter update - there can only be one successful update per epoch.
+
+CREATE TABLE parameter_update (
+   epoch_no             uinteger          PRIMARY KEY,
+   min_fee              uinteger          NOT NULL,
+   max_fee              uinteger          NOT NULL,
+   max_block_size       uinteger          NOT NULL,
+   max_tx_size          uinteger          NOT NULL,
+   max_bh_size          uinteger          NOT NULL,
+   key_deposit          lovelace          NOT NULL,
+   key_deposit_refund   interval          NOT NULL,
+   key_deposit_decay    rational          NOT NULL,
+   pool_deposit         lovelace          NOT NULL,
+   pool_deposit_refund  interval          NOT NULL,
+   pool_deposit_decay   rational          NOT NULL,
+   max_epoch            uinteger          NOT NULL,
+   n_optimal            uinteger          NOT NULL,
+   influence            rational          NOT NULL,
+   monetary_expansion_rate interval       NOT NULL,
+   treasury_growth_rate interval          NOT NULL,
+   active_slot_coeff    interval          NOT NULL,
+   decentralisation     interval          NOT NULL,
+   entropy              nonce,                              -- NULL if the nonce is not present
+   protocol_version     protocol_version  NOT NULL
+   );
+
+
+
+
+----------------------------------------
+--
+-- Pool Specific Information
+--
+----------------------------------------
+
+
+-- Tickers may be 1-5 bytes
+CREATE DOMAIN ticker AS bytea
+  CHECK (octet_length (VALUE) = 5);
+
+-- URL for pool description.
+CREATE DOMAIN url AS bytea
+  CHECK (octet_length (VALUE) = 64);
+
+-- Percentages in the range 0%-100% -- recorded to two decimal places
+CREATE DOMAIN percentage AS decimal (5,2)
+  CHECK (VALUE >= 0 AND VALUE <= 100);
+
+
+-- NEW for SHELLEY
+-- Pool Parameters.
+-- Records important pool-specific data.
+
+CREATE TABLE pool_params (
+   pool_id              hash              NOT NULL,          -- hash of the pool VRF key
+   owners               hash ARRAY        NOT NULL,          -- key hashes for the owners - at least one owner is needed
+   ticker_id            ticker            NOT NULL,
+   pledge               lovelace          NOT NULL,
+   reward_address       staking_addr_hash NOT NULL,          -- overall pool rewards
+   relays               url ARRAY         NOT NULL,          -- relays - Q is this needed?
+   pool_url             url,
+   metadata_hash        hash,
+   margin               percentage        NOT NULL,
+   fixed_cost           uinteger          NOT NULL,
+   registered           uinteger          NOT NULL           -- in which slot was this metadata registered/re-registered
+
+   PRIMARY KEY (pool_id,registered)
+   );
+
+
+-- NEW for SHELLEY
+-- Pool Retirement
+
+CREATE TABLE pool_retired (
+   pool_id              hash NOT NULL,                        -- hash of the pool VRF key
+   retired              uinteger NOT NULL                     -- when retirement occurred (epoch no)
+
+   PRIMARY KEY (pool_id,retired)
+   );
+
+
+-- NEW for SHELLEY
+-- Announcement of Pool Retirement
+
+CREATE TABLE pool_retiring (
+   pool_id              hash NOT NULL,                        -- hash of the pool VRF key
+   announced            uinteger NOT NULL,                    -- which slot was retirement announced
+   retiring             uinteger NOT NULL                     -- in which epoch is retirement planned
+
+   PRIMARY KEY (pool_id,announced)
+  );
