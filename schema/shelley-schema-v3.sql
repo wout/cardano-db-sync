@@ -361,6 +361,16 @@ CREATE VIEW utxo_resolved AS
 
 
 
+------------------------------------------------------------------------------------------------------------------------
+--
+--
+-- The remaining data is derived from Shelley transactions or ledger state, but is provided as separate tables to make it simpler to use
+--
+--
+------------------------------------------------------------------------------------------------------------------------
+
+
+
 ----------------------------------------
 --
 -- Treasury and Reserves
