@@ -8,7 +8,7 @@
 --       2020-04-13   KH        Created Shelley-only version
 --       2020-04-14   KH        Updated types and included transaction metadata
 --       2020-04-14   KH        Worked through with Jared, checked sizes and made minor updates
---       2020-04-15   KH        Updated metadata format, updated address format, added epoch no in block
+--       2020-04-15   KH        Updated metadata format, updated address format, added pointer type, added stake key lookup table, added epoch no in block
 --
 ------------------------------------------------------------
 
@@ -28,19 +28,23 @@
 --   5.  Can script and key hashes be treated identically (address hashes are a different size)
 --       (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
 --       (don't need to store scripts, since not executed, only used for authorisation)
---       (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?)
+--       (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?
+--        We have decided not to distinguish them.)
 --   6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
---       (address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
+--       (Yes.  Address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
 --   7.  Are signatures variable sized?
 --       (probably not, but needs to be confirmed - just wrapped up cryptonite addresses)
 --   8.  Are there additional constraints on data formats that should be included in the schema (e.g. data ranges)
---       (To do: check all constraints)
+--       (To do: check that all the constraints are still correct)
 --   9.  Are alternatives handled correctly?  Is there a better way to do this in PostgreSQL than just using tables
 --       (Checking this.  Looks like no.)
 --   10. Can we run a central node to access treasury/reward info rather than reconstructing this information
 --       (No. We will need to record all the data we need in a local node.  Beware of performance implications in the implementation.)
 --   11. Do we need to merge with the existing Byron schema or can we maintain two schemas
 --       (Merging is preferred.  To do: do this and normalise the data format once the necessary data content is agreed.)
+--   12. Jared has suggested recording the stake that is held by each staking key.  I have included this as a table
+--       but this could be expensive to maintain (both time and space), especially if historic data is recorded.
+--   13. slot_no is used in various places, but block_no/blockid would be equivalents if preferred
 --
 ------------------------------------------------------------
 
@@ -61,18 +65,18 @@ CREATE DOMAIN uinteger AS integer
   CHECK (VALUE >= 0);
 
 -- Positive integers.
-CREATE DOMAIN natural AS integer
+CREATE DOMAIN nonnegative AS integer
   CHECK (VALUE > 0);
 
 -- Copied from the CDDL spec.  interval may not be the best name?
-CREATE TYPE interval (
-   min   uinteger       NOT NULL,
-   max   uinteger       NOT NULL
+CREATE TYPE interval as (
+   minval   uinteger,
+   maxval   uinteger
    );
 
-CREATE TYPE rational (
-   num      uinteger    NOT NULL,
-   denom    natural     NOT NULL
+CREATE TYPE rational as (
+   num      uinteger,
+   denom    nonnegative
    );
 
 -- To do: check this is correct syntax
@@ -109,27 +113,27 @@ CREATE DOMAIN script_hash AS hash;
 -- NEW for SHELLEY.
 -- Base addresses
 -- To do: do we also need pointer addresses?  Do we need to distinguish script addresses from other addresses?
-CREATE TYPE base_address (
-   payment_address payment_addr_hash NOT NULL,
-   staking_address staking_addr_hash                -- NULL for bootstrap addresses and enterprise addresses
+-- CREATE TYPE base_address (
+--   payment_address payment_addr_hash NOT NULL,
+--   staking_address staking_addr_hash                -- NULL for bootstrap addresses and enterprise addresses
+--   );
+
+-- CREATE TYPE pointer_address (
+--   payment_address  payment_addr_hash NOT NULL,
+--   pointer          pointer           NOT NULL
+--   );
+
+CREATE TYPE address as (
+   payment_address   payment_addr_hash,
+   staking_address   staking_addr_hash,                -- should be NULL for bootstrap addresses, enterprise addresses and pointer addresses
+   pointer_address   pointer                           -- should be NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
    );
 
-CREATE TYPE pointer_address (
-   payment_address  payment_addr_hash NOT NULL,
-   pointer          pointer           NOT NULL
-   );
-
-CREATE TYPE address (
-   payment_address   payment_addr_hash NOT NULL,
-   staking_address   staking_addr_hash,                -- NULL for bootstrap addresses, enterprise addresses and pointer addresses
-   pointer_address   pointer                           -- NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
-   );
-
--- To Do: Choose better names for p1, p2, p3
-CREATE TYPE pointer (
-   p1               uinteger          NOT NULL,
-   p2               uinteger          NOT NULL,
-   p3               uinteger          NOT NULL
+-- Pointer addresses, refer to a specific transaction and certificate
+CREATE TYPE pointer as (
+   blockid          hash,
+   tx_idx           txindex,
+   cert_idx         uinteger
    );
 
 ----------------------------------------
@@ -139,11 +143,11 @@ CREATE TYPE pointer (
 ----------------------------------------
 
 -- NEW for SHELLEY: operational certificates.
-CREATE TYPE operational_certificate (
-    hot_vkey        hash PRIMARY KEY,               -- KES key hash
-    sequence_number uinteger NOT NULL,
-    kes_period      uinteger NOT NULL,
-    sigma           signature
+CREATE TYPE operational_certificate as (
+    hot_vkey        hash,                       -- KES key hash
+    sequence_number uinteger,
+    kes_period      uinteger,
+    sigma           signature                   -- optional
   );
 
 
@@ -171,7 +175,7 @@ CREATE DOMAIN txindex AS smallint
   CHECK (VALUE >= 0 AND VALUE < 1024);
 
 -- NEW for SHELLEY: protocol version. To do: confirm that this is needed in the database
-CREATE TYPE protocol_version (
+CREATE TYPE protocol_version as (
   major     uinteger,
   minor     uinteger
   );
@@ -200,13 +204,9 @@ CREATE TABLE version (
 
 -- SHELLEY only - no NULL blocks
 CREATE TABLE blocks (
+  -- id
   blockid          hash                 PRIMARY KEY,    -- PRIMARY KEY implies UNIQUE and NOT NULL.
-  header           block_header         NOT NULL,
-  );
 
-
--- Could be rolled into block
-CREATE TYPE block_header (
    -- header body
   slot_no          uinteger          NOT NULL,
   epoch_no         uinteger         NOT NULL,
@@ -221,7 +221,7 @@ CREATE TYPE block_header (
   vrfKey           hash              NOT NULL,        -- SHELLEY: VRF verification key
 
   nonce_vrf        vrf_certificate   NOT NULL,        -- SHELLEY: nonce proof
-  leader_vrf       vef_certificate   NOT NULL,        -- SHELLEY: leader election value
+  leader_vrf       vrf_certificate   NOT NULL,        -- SHELLEY: leader election value
 
   op_cert          operational_certificate NOT NULL,  -- SHELLEY: operational certificate
   proto_version    protocol_version  NOT NULL,        -- SHELLEY: protocol version
@@ -264,9 +264,9 @@ CREATE TABLE txs (
 -- NEW for SHELLEY: transaction metadata.
 -- For simplicity, we store the metadata as JSON.  This will need to be converted when stored
 
-CREATE TYPE tx_metadata (
-    label         uinteger         NOT NULL,
-    metadata      jsonb            NOT NULL
+CREATE TYPE tx_metadata as (
+    label         uinteger,
+    metadata      jsonb
     );
 
 
@@ -345,9 +345,9 @@ CREATE VIEW utxo_resolved AS
 -- NEW for Shelley
 -- Merges key and script hashs
 
-CREATE TYPE withdrawal (
-       from            hash           NOT NULL         -- may be either script or key
-       amount          lovelace       NOT NULL         -- amount withdrawn
+CREATE TYPE withdrawal as (
+       withdraw_from   hash,            -- may be either script or key hash
+       amount          lovelace         -- amount withdrawn
    );
 
 
@@ -416,7 +416,7 @@ CREATE TABLE stake_key_registration (
    slot_no              uinteger          NOT NULL,
    in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
-   PRIMARY KEY (stake_key_hash,in_tx)
+   PRIMARY KEY (stakekey_address,in_tx)
    );
 
 
@@ -424,11 +424,11 @@ CREATE TABLE stake_key_registration (
 -- When was a staking key unregistered
 
 CREATE TABLE stake_key_deregistration (
-   stakekey_address     staking_addr_hash PRIMARY KEY,
+   stakekey_address     staking_addr_hash NOT NULL,
    slot_no              uinteger          NOT NULL,
    in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
-   PRIMARY KEY (stake_key_hash,in_tx)
+   PRIMARY KEY (stakekey_address,in_tx)
    );
 
 
@@ -515,7 +515,7 @@ CREATE TABLE pool_params (
    owners               hash ARRAY        NOT NULL,          -- key hashes for the owners - at least one owner is needed
    ticker_id            ticker            NOT NULL,
    pledge               lovelace          NOT NULL,
-x   reward_address       staking_addr_hash NOT NULL,          -- overall pool rewards
+   reward_address       staking_addr_hash NOT NULL,          -- overall pool rewards
    pool_url             url,
    metadata_hash        hash,
    margin               percentage        NOT NULL,
@@ -547,3 +547,15 @@ CREATE TABLE pool_retiring (
 
    PRIMARY KEY (pool_id,announced)
   );
+
+
+-- NEW for SHELLEY
+-- How much stake is held by a staking key.
+
+CREATE TABLE stake (
+   stakekey_address     staking_addr_hash NOT NULL,
+   slot_no              uinteger          NOT NULL,           -- when was the change made
+   stake                lovelace          NOT NULL,
+
+   PRIMARY KEY (stakekey_address,stake)
+);
