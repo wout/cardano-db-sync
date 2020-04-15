@@ -8,6 +8,7 @@
 --       2020-04-13   KH        Created Shelley-only version
 --       2020-04-14   KH        Updated types and included transaction metadata
 --       2020-04-14   KH        Worked through with Jared, checked sizes and made minor updates
+--       2020-04-15   KH        Updated metadata format, updated address format, added epoch no in block
 --
 ------------------------------------------------------------
 
@@ -19,11 +20,11 @@
 --   1.  Do we need historic data for pool registrations etc. or just live information?
 --       (Yes)
 --   2.  Are withdrawals needed in the transactions?
---       (used only to calculate wallet reward totals, currently withdraw total amount - confirm with Alex that this is needed)
+--       (Yes.  We need this to calculate wallet reward totals from the on-chain data.)
 --   3.  Are there other forms of transaction metadata that need to be recorded?
---       (Yes - to do fix these)
+--       (Yes - to do add these.)
 --   4.  Do we need to record protocol parameter changes
---       (Yes. will need to follow the voting procedure to determine this, could be for later implementation)
+--       (Yes. will need to follow the voting procedure to determine this, this could be for later implementation)
 --   5.  Can script and key hashes be treated identically (address hashes are a different size)
 --       (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
 --       (don't need to store scripts, since not executed, only used for authorisation)
@@ -33,11 +34,16 @@
 --   7.  Are signatures variable sized?
 --       (probably not, but needs to be confirmed - just wrapped up cryptonite addresses)
 --   8.  Are there additional constraints on data formats that should be included in the schema (e.g. data ranges)
---       (to do: check this)
---   9.  Are alternatives handled correctly?  Is there a better way to do this in PostgreSQL
+--       (To do: check all constraints)
+--   9.  Are alternatives handled correctly?  Is there a better way to do this in PostgreSQL than just using tables
+--       (Checking this.  Looks like no.)
 --   10. Can we run a central node to access treasury/reward info rather than reconstructing this information
+--       (No. We will need to record all the data we need in a local node.  Beware of performance implications in the implementation.)
+--   11. Do we need to merge with the existing Byron schema or can we maintain two schemas
+--       (Merging is preferred.  To do: do this and normalise the data format once the necessary data content is agreed.)
 --
 ------------------------------------------------------------
+
 
 
 ----------------------------------------
@@ -58,7 +64,7 @@ CREATE DOMAIN uinteger AS integer
 CREATE DOMAIN natural AS integer
   CHECK (VALUE > 0);
 
-
+-- Copied from the CDDL spec.  interval may not be the best name?
 CREATE TYPE interval (
    min   uinteger       NOT NULL,
    max   uinteger       NOT NULL
@@ -107,7 +113,24 @@ CREATE TYPE base_address (
    payment_address payment_addr_hash NOT NULL,
    staking_address staking_addr_hash                -- NULL for bootstrap addresses and enterprise addresses
    );
-   
+
+CREATE TYPE pointer_address (
+   payment_address  payment_addr_hash NOT NULL,
+   pointer          pointer           NOT NULL
+   );
+
+CREATE TYPE address (
+   payment_address   payment_addr_hash NOT NULL,
+   staking_address   staking_addr_hash,                -- NULL for bootstrap addresses, enterprise addresses and pointer addresses
+   pointer_address   pointer                           -- NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
+   );
+
+-- To Do: Choose better names for p1, p2, p3
+CREATE TYPE pointer (
+   p1               uinteger          NOT NULL,
+   p2               uinteger          NOT NULL,
+   p3               uinteger          NOT NULL
+   );
 
 ----------------------------------------
 --
@@ -163,7 +186,7 @@ CREATE TYPE protocol_version (
 -- Schema version number. There should only ever be a single row in this table.
 -- UNCHANGED FOR SHELLEY
 CREATE TABLE version (
-  number      uinteger
+  number      uinteger      -- should this be NOT NULL?
 );
 
 
@@ -185,7 +208,8 @@ CREATE TABLE blocks (
 -- Could be rolled into block
 CREATE TYPE block_header (
    -- header body
-  slot_no          uinteger          NOT NULL,                
+  slot_no          uinteger          NOT NULL,
+  epoch_no         uinteger         NOT NULL,
 
   block_no         uinteger          NOT NULL,
 
@@ -202,12 +226,12 @@ CREATE TYPE block_header (
   op_cert          operational_certificate NOT NULL,  -- SHELLEY: operational certificate
   proto_version    protocol_version  NOT NULL,        -- SHELLEY: protocol version
 
-  merkle_root      hash              NOT NULL,        -- Could be NULL-able in Byron for EBBs
+  merkle_root      hash,                              -- Could be NULL-able in Byron era blocks for EBBs
 
   size             uinteger          NOT NULL,        -- Block size in bytes.
 
    -- signature
-   body_signature signature          NOT NULL         -- KES signature -- To do: check this is correct
+   body_signature signature          NOT NULL         -- KES signature
 );
 
 
@@ -229,34 +253,31 @@ CREATE TYPE block_header (
 CREATE TABLE txs (
   txid            hash                   PRIMARY KEY,
   in_blockid      hash                   NOT NULL REFERENCES blocks (blockid) ON DELETE CASCADE,
-  
+
   fee             lovelace               NOT NULL,
-  withdrawals     withdrawal ARRAY,                         -- Is this needed?
-  metadata        tx_metadata                               -- transaction metadata
+  withdrawals     withdrawal ARRAY,
+  metadata        tx_metadata
 );
 
 
 
 -- NEW for SHELLEY: transaction metadata.
--- To Do: there are additional types of metadata - these need to be added
+-- For simplicity, we store the metadata as JSON.  This will need to be converted when stored
+
 CREATE TYPE tx_metadata (
     label         uinteger         NOT NULL,
-    metadata      bytemetadata     NOT NULL
+    metadata      jsonb            NOT NULL
     );
-
--- URL for description.
-CREATE DOMAIN bytemetadata AS bytea
-  CHECK (octet_length (VALUE) = 64);
 
 
 -- Transaction output
--- output address changed to base address type FOR SHELLEY
+-- output address changed to (base) address type FOR SHELLEY
 
 CREATE TABLE txouts (
-  in_txid      hash     REFERENCES txs (txid) ON DELETE CASCADE,
+  in_txid      hash                REFERENCES txs (txid) ON DELETE CASCADE,
   index        txindex,
-  address      base_address     NOT NULL,
-  value        lovelace NOT NULL,
+  address      address             NOT NULL,
+  value        lovelace            NOT NULL,
 
   PRIMARY KEY (in_txid, index)
 );
@@ -266,10 +287,10 @@ CREATE TABLE txouts (
 -- UNCHANGED FOR SHELLEY
 
 CREATE TABLE txins (
-  in_txid      hash     REFERENCES txs (txid) ON DELETE CASCADE,
+  in_txid      hash               REFERENCES txs (txid) ON DELETE CASCADE,
   index        txindex,
-  txout_txid   hash     NOT NULL,
-  txout_index  txindex  NOT NULL,
+  txout_txid   hash               NOT NULL,
+  txout_index  txindex            NOT NULL,
 
   PRIMARY KEY (in_txid, index),
   FOREIGN KEY (txout_txid, txout_index)
@@ -316,7 +337,7 @@ CREATE VIEW utxo_resolved AS
 
 ----------------------------------------
 --
--- Withdrawals
+-- Withdrawals - used to record deductions from rewards for accounting purposes
 --
 ----------------------------------------
 
@@ -325,8 +346,8 @@ CREATE VIEW utxo_resolved AS
 -- Merges key and script hashs
 
 CREATE TYPE withdrawal (
-       from            hash NOT NULL         -- may be either script or key
-       amount          lovelace NOT NULL     -- amount withdrawn
+       from            hash           NOT NULL         -- may be either script or key
+       amount          lovelace       NOT NULL         -- amount withdrawn
    );
 
 
@@ -336,13 +357,14 @@ CREATE TYPE withdrawal (
 --
 ----------------------------------------
 
+
 -- NEW for SHELLEY
 -- This records the total value of the treasury and reserves at the beginning of the specified epoch.
 
 CREATE TABLE central_funds (
-   epoch_no           uinteger PRIMARY KEY,
-   treasury           lovelace NOT NULL,
-   reserves           lovelace NOT NULL
+   epoch_no           uinteger        PRIMARY KEY,
+   treasury           lovelace        NOT NULL,
+   reserves           lovelace        NOT NULL
    );
 
 
@@ -360,11 +382,12 @@ CREATE TABLE central_funds (
 
 CREATE TABLE rewards (
    rewards_address      staking_addr_hash NOT NULL,
-   pool_id              hash,                       -- NULL means an instantaneous reward from the treasury
-   epoch_no             uinteger NOT NULL,
-   reward               lovelace NOT NULL,
+   instantaneous        boolean           NOT NULL,
+   pool_id              hash              NOT NULL,                         -- Arbitrary if an instantaneous reward - needed for primary key
+   epoch_no             uinteger          NOT NULL,
+   reward               lovelace          NOT NULL,
 
-   PRIMARY KEY (rewards_address,pool_id,epoch_no)   -- this won't work for instantaneous rewards - pool_id is NULL
+   PRIMARY KEY (rewards_address,pool_id,epoch_no,instantaneous)
    );
 
 
@@ -391,7 +414,7 @@ CREATE TABLE delegation (
 CREATE TABLE stake_key_registration (
    stakekey_address     staking_addr_hash NOT NULL,
    slot_no              uinteger          NOT NULL,
-   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
    PRIMARY KEY (stake_key_hash,in_tx)
    );
@@ -403,7 +426,7 @@ CREATE TABLE stake_key_registration (
 CREATE TABLE stake_key_deregistration (
    stakekey_address     staking_addr_hash PRIMARY KEY,
    slot_no              uinteger          NOT NULL,
-   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
    PRIMARY KEY (stake_key_hash,in_tx)
    );
@@ -415,7 +438,7 @@ CREATE TABLE stake_key_deregistration (
 CREATE TABLE script_registration (
    script_address       script_hash       NOT NULL,
    slot_no              uinteger          NOT NULL,
-   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
    PRIMARY KEY (script_address,in_tx)
    );
@@ -427,7 +450,7 @@ CREATE TABLE script_registration (
 CREATE TABLE script_deregistration (
    script_address       script_hash       NOT NULL,
    slot_no              uinteger          NOT NULL,
-   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE
+   in_tx                hash              NOT NULL REFERENCES txs (txid) ON DELETE CASCADE,
 
    PRIMARY KEY (script_address,in_tx)
    );
@@ -492,12 +515,12 @@ CREATE TABLE pool_params (
    owners               hash ARRAY        NOT NULL,          -- key hashes for the owners - at least one owner is needed
    ticker_id            ticker            NOT NULL,
    pledge               lovelace          NOT NULL,
-   reward_address       staking_addr_hash NOT NULL,          -- overall pool rewards
+x   reward_address       staking_addr_hash NOT NULL,          -- overall pool rewards
    pool_url             url,
    metadata_hash        hash,
    margin               percentage        NOT NULL,
    fixed_cost           uinteger          NOT NULL,
-   registered           uinteger          NOT NULL           -- in which slot was this metadata registered/re-registered
+   registered           uinteger          NOT NULL,          -- in which slot was this metadata registered/re-registered
 
    PRIMARY KEY (pool_id,registered)
    );
@@ -508,7 +531,7 @@ CREATE TABLE pool_params (
 
 CREATE TABLE pool_retired (
    pool_id              hash NOT NULL,                        -- hash of the pool VRF key
-   retired              uinteger NOT NULL                     -- when retirement occurred (epoch no)
+   retired              uinteger NOT NULL,                    -- when retirement occurred (epoch no)
 
    PRIMARY KEY (pool_id,retired)
    );
@@ -520,7 +543,7 @@ CREATE TABLE pool_retired (
 CREATE TABLE pool_retiring (
    pool_id              hash NOT NULL,                        -- hash of the pool VRF key
    announced            uinteger NOT NULL,                    -- which slot was retirement announced
-   retiring             uinteger NOT NULL                     -- in which epoch is retirement planned
+   retiring             uinteger NOT NULL,                    -- in which epoch is retirement planned
 
    PRIMARY KEY (pool_id,announced)
   );
