@@ -79,8 +79,19 @@ CREATE TYPE rational as (
    denom    nonnegative
    );
 
--- To do: check this is correct syntax
-CREATE DOMAIN nonce as hash;
+
+
+----------------------------------------
+--
+-- Transaction Indexes
+--
+----------------------------------------
+
+-- Transactions contain lists of input and lists of outputs.
+-- So we can identify these elements by the 0-based index within the list.
+-- To do: confirm limit
+CREATE DOMAIN txindex AS smallint
+  CHECK (VALUE >= 0 AND VALUE < 1024);
 
 
 ----------------------------------------
@@ -123,12 +134,6 @@ CREATE DOMAIN script_hash AS hash;
 --   pointer          pointer           NOT NULL
 --   );
 
-CREATE TYPE address as (
-   payment_address   payment_addr_hash,
-   staking_address   staking_addr_hash,                -- should be NULL for bootstrap addresses, enterprise addresses and pointer addresses
-   pointer_address   pointer                           -- should be NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
-   );
-
 -- Pointer addresses, refer to a specific transaction and certificate
 CREATE TYPE pointer as (
    blockid          hash,
@@ -136,11 +141,31 @@ CREATE TYPE pointer as (
    cert_idx         uinteger
    );
 
+CREATE TYPE address as (
+   payment_address   payment_addr_hash,
+   staking_address   staking_addr_hash,                -- should be NULL for bootstrap addresses, enterprise addresses and pointer addresses
+   pointer_address   pointer                           -- should be NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
+   );
+
+
+
+
+
 ----------------------------------------
 --
 -- Certificates and Signatures
 --
 ----------------------------------------
+
+-- NEW for SHELLEY: signatures. -- To do: verify the size of this.
+
+CREATE DOMAIN signature AS bytea;
+
+
+-- NEW for SHELLEY: VRF certificates. To do: verify the size of this.
+
+CREATE DOMAIN vrf_certificate AS bytea;
+
 
 -- NEW for SHELLEY: operational certificates.
 CREATE TYPE operational_certificate as (
@@ -151,16 +176,6 @@ CREATE TYPE operational_certificate as (
   );
 
 
--- NEW for SHELLEY: VRF certificates. To do: verify the size of this.
-
-CREATE DOMAIN vrf_certificate AS bytea;
-
-
--- NEW for SHELLEY: signatures. -- To do: verify the size of this.
-
-CREATE DOMAIN signature AS bytea;
-
-
 
 ----------------------------------------
 --
@@ -168,18 +183,21 @@ CREATE DOMAIN signature AS bytea;
 --
 ----------------------------------------
 
--- Transactions contain lists of input and lists of outputs.
--- So we can identify these elements by the 0-based index within the list.
--- To do: confirm limit
-CREATE DOMAIN txindex AS smallint
-  CHECK (VALUE >= 0 AND VALUE < 1024);
-
 -- NEW for SHELLEY: protocol version. To do: confirm that this is needed in the database
 CREATE TYPE protocol_version as (
   major     uinteger,
   minor     uinteger
   );
 
+CREATE DOMAIN nonce as hash;
+
+-- NEW for SHELLEY: transaction metadata.
+-- For simplicity, we store the metadata as JSON.  This will need to be converted when stored
+
+CREATE TYPE tx_metadata as (
+    label         uinteger,
+    metadata      jsonb
+    );
 
 ----------------------------------------
 --
@@ -237,6 +255,22 @@ CREATE TABLE blocks (
 
 ----------------------------------------
 --
+-- Withdrawals - used to record deductions from rewards for accounting purposes
+--
+----------------------------------------
+
+
+-- NEW for Shelley
+-- Merges key and script hashs
+
+CREATE TYPE withdrawal as (
+       withdraw_from   hash,            -- may be either script or key hash
+       amount          lovelace         -- amount withdrawn
+   );
+
+
+----------------------------------------
+--
 -- Transactions
 --
 ----------------------------------------
@@ -259,15 +293,6 @@ CREATE TABLE txs (
   metadata        tx_metadata
 );
 
-
-
--- NEW for SHELLEY: transaction metadata.
--- For simplicity, we store the metadata as JSON.  This will need to be converted when stored
-
-CREATE TYPE tx_metadata as (
-    label         uinteger,
-    metadata      jsonb
-    );
 
 
 -- Transaction output
@@ -334,21 +359,6 @@ CREATE VIEW utxo_resolved AS
        (utxo.txid  = txouts.in_txid AND
         utxo.index = txouts.index);
 
-
-----------------------------------------
---
--- Withdrawals - used to record deductions from rewards for accounting purposes
---
-----------------------------------------
-
-
--- NEW for Shelley
--- Merges key and script hashs
-
-CREATE TYPE withdrawal as (
-       withdraw_from   hash,            -- may be either script or key hash
-       amount          lovelace         -- amount withdrawn
-   );
 
 
 ----------------------------------------
