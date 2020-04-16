@@ -9,6 +9,7 @@
 --       2020-04-14   KH        Updated types and included transaction metadata
 --       2020-04-14   KH        Worked through with Jared, checked sizes and made minor updates
 --       2020-04-15   KH        Updated metadata format, updated address format, added pointer type, added stake key lookup table, added epoch no in block
+--       2020-04-16   KH        Changed address format to bytea based on suggestion by Duncan
 --
 ------------------------------------------------------------
 
@@ -17,21 +18,21 @@
 ------------------------------------------------------------
 -- Key open issues
 --
---   1.  Do we need historic data for pool registrations etc. or just live information?
---       (Yes)
---   2.  Are withdrawals needed in the transactions?
---       (Yes.  We need this to calculate wallet reward totals from the on-chain data.)
---   3.  Are there other forms of transaction metadata that need to be recorded?
---       (Yes - to do add these.)
---   4.  Do we need to record protocol parameter changes
---       (Yes. will need to follow the voting procedure to determine this, this could be for later implementation)
---   5.  Can script and key hashes be treated identically (address hashes are a different size)
---       (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
---       (don't need to store scripts, since not executed, only used for authorisation)
---       (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?
---        We have decided not to distinguish them.)
---   6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
---       (Yes.  Address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
+-- - 1.  Do we need historic data for pool registrations etc. or just live information?
+-- -     (Yes)
+-- - 2.  Are withdrawals needed in the transactions?
+-- -     (Yes.  We need this to calculate wallet reward totals from the on-chain data.)
+-- - 3.  Are there other forms of transaction metadata that need to be recorded?
+-- -     (Yes - these have been added.)
+-- - 4.  Do we need to record protocol parameter changes
+-- -     (Yes. will need to follow the voting procedure to determine this, this could be for later implementation)
+-- - 5.  Can script and key hashes be treated identically (address hashes are a different size)
+-- -      (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
+-- -      (don't need to store scripts, since not executed, only used for authorisation)
+-- -      (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?
+-- -      We have decided not to distinguish them.)
+-- - 6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
+-- -      (Yes.  Address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
 --   7.  Are signatures variable sized?
 --       (probably not, but needs to be confirmed - just wrapped up cryptonite addresses)
 --   8.  Are there additional constraints on data formats that should be included in the schema (e.g. data ranges)
@@ -122,32 +123,14 @@ CREATE DOMAIN script_hash AS hash;
 
 
 -- NEW for SHELLEY.
--- Base addresses
--- To do: do we also need pointer addresses?  Do we need to distinguish script addresses from other addresses?
--- CREATE TYPE base_address (
---   payment_address payment_addr_hash NOT NULL,
---   staking_address staking_addr_hash                -- NULL for bootstrap addresses and enterprise addresses
---   );
 
--- CREATE TYPE pointer_address (
---   payment_address  payment_addr_hash NOT NULL,
---   pointer          pointer           NOT NULL
---   );
-
--- Pointer addresses, refer to a specific transaction and certificate
-CREATE TYPE pointer as (
-   blockid          hash,
-   tx_idx           txindex,
-   cert_idx         uinteger
-   );
-
-CREATE TYPE address as (
-   payment_address   payment_addr_hash,
-   staking_address   staking_addr_hash,                -- should be NULL for bootstrap addresses, enterprise addresses and pointer addresses
-   pointer_address   pointer                           -- should be NULL for bootstrap addresses, enterprise addresses and non-pointer addresses
-   );
-
-
+--  New format for addresses
+CREATE DOMAIN address as bytea
+  -- This level of specificity may be overkill, but is probably a useful safety check
+  CHECK (  octet_length (VALUE) = 28            -- bootstrap address/enterprise address
+        or octet_length (VALUE) = 56            -- Shelley staking address
+        or octet_length (VALUE) = 94            -- pointer address
+        );
 
 
 
