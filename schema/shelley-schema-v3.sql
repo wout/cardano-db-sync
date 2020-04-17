@@ -1,53 +1,85 @@
-------------------------------------------------------------
+  ------------------------------------------------------------
 --
 -- Schema to store blocks for the Shelley era of the Cardano chain in a PostgreSQL database.
 -- This schema is based on that for the Byron era, but for Shelley era blocks only.
 --
 -- Kevin Hammond, IOHK
---       2020-04-10   KH        Adapted Byron version
+--       2020-04-10   KH        Adapted original Byron version
 --       2020-04-13   KH        Created Shelley-only version
 --       2020-04-14   KH        Updated types and included transaction metadata
 --       2020-04-14   KH        Worked through with Jared, checked sizes and made minor updates
 --       2020-04-15   KH        Updated metadata format, updated address format, added pointer type, added stake key lookup table, added epoch no in block
 --       2020-04-16   KH        Changed address format to bytea based on suggestion by Duncan
+--       2020-04-17   KH        Added performance data, added era type, covers both Shelley and Byron blocks and transactions
 --
 ------------------------------------------------------------
 
 
 
 ------------------------------------------------------------
--- Key open issues
 --
--- - 1.  Do we need historic data for pool registrations etc. or just live information?
--- -     (Yes)
--- - 2.  Are withdrawals needed in the transactions?
--- -     (Yes.  We need this to calculate wallet reward totals from the on-chain data.)
--- - 3.  Are there other forms of transaction metadata that need to be recorded?
--- -     (Yes - these have been added.)
--- - 4.  Do we need to record protocol parameter changes
--- -     (Yes. will need to follow the voting procedure to determine this, this could be for later implementation)
--- - 5.  Can script and key hashes be treated identically (address hashes are a different size)
--- -      (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
--- -      (don't need to store scripts, since not executed, only used for authorisation)
--- -      (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?
--- -      We have decided not to distinguish them.)
--- - 6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
--- -      (Yes.  Address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
+-- Key open issues: X means the issue has been resolved
+--
+------------------------------------------------------------
+
+
+-- X 1.  Do we need historic data for pool registrations etc. or just live information?
+-- X     (Yes)
+
+-- X 2.  Are withdrawals needed in the transactions?
+-- X     (Yes.  We need this to calculate wallet reward totals from the on-chain data.)
+
+-- X 3.  Are there other forms of transaction metadata that need to be recorded?
+-- X     (Yes - these have been added.)
+
+-- X 4.  Do we need to record protocol parameter changes
+-- X     (Yes. will need to follow the voting procedure to determine this, this could be for later implementation)
+
+-- X 5.  Can script and key hashes be treated identically (address hashes are a different size)
+-- X      (No.  script hash is an address, stake key hash is an address, pool operator key hash no - to do: ask Jared to check each of these)
+-- X      (don't need to store scripts, since not executed, only used for authorisation)
+-- X      (do we need to distinguish script hash from key hash - possibly, since there could in theory be a collision?
+-- X      We have decided not to distinguish them.)
+
+-- X 6.  Do we need to record pointer addresses as an additional type, or are they just internal to the ledger?
+-- X      (Yes.  Address type will change, but could have (payment credential [hash],staking reference[NULL,hash,pointer - [block,tx,cert] triple])
+
 --   7.  Are signatures variable sized?
 --       (probably not, but needs to be confirmed - just wrapped up cryptonite addresses)
+
 --   8.  Are there additional constraints on data formats that should be included in the schema (e.g. data ranges)
 --       (To do: check that all the constraints are still correct)
---   9.  Are alternatives handled correctly?  Is there a better way to do this in PostgreSQL than just using tables
---       (Checking this.  Looks like no.)
---   10. Can we run a central node to access treasury/reward info rather than reconstructing this information
---       (No. We will need to record all the data we need in a local node.  Beware of performance implications in the implementation.)
---   11. Do we need to merge with the existing Byron schema or can we maintain two schemas
---       (Merging is preferred.  To do: do this and normalise the data format once the necessary data content is agreed.)
+
+-- X 9.  Are alternatives handled correctly?  Is there a better way to do this in PostgreSQL than just using tables
+-- X      (Looks like .)
+
+-- X 10. Can we run a central node to access treasury/reward info rather than reconstructing this information
+-- X      (No. We will need to record all the data we need in a local node.  Beware of performance implications in the implementation.)
+
+-- X 11. Do we need to merge with the existing Byron schema or can we maintain two schemas
+-- X      (Merging is preferred.)
+
 --   12. Jared has suggested recording the stake that is held by each staking key.  I have included this as a table
 --       but this could be expensive to maintain (both time and space), especially if historic data is recorded.
---   13. slot_no is used in various places, but block_no/blockid would be equivalents if preferred
---
+
+--   13. slot_no is used in various places, but block_no/blockid would be equivalents if these were preferred
+
+--   14. We need to normalise the schema and consider changing some types to tables for e.g. performance/storage reasons
+
 ------------------------------------------------------------
+
+
+
+----------------------------------------
+--
+-- Which Cardano Era does this format refer to
+-- Used in Blocks
+--
+----------------------------------------
+
+CREATE TYPE era as ENUM (
+       'Byron', 'Shelley'
+);
 
 
 
@@ -196,6 +228,8 @@ CREATE TABLE version (
 
 
 
+
+
 ----------------------------------------
 --
 -- Blocks
@@ -206,33 +240,44 @@ CREATE TABLE version (
 -- SHELLEY only - no NULL blocks
 CREATE TABLE blocks (
   -- id
-  blockid          hash                 PRIMARY KEY,    -- PRIMARY KEY implies UNIQUE and NOT NULL.
+  blockid          hash             PRIMARY KEY,    -- PRIMARY KEY implies UNIQUE and NOT NULL.
+
+  -- kind of block
+  era              era               NOT NULL,      -- Which kind of block are we dealing with: Shelley, Byron etc
 
    -- header body
+  epoch_no         uinteger          NOT NULL,       -- The epoch can in principle be derived from the slot number,
+                                                     -- but since the mapping might change through protocol parameter updates,
+                                                     -- it is sensible to record it here
   slot_no          uinteger          NOT NULL,
-  epoch_no         uinteger         NOT NULL,
 
-  block_no         uinteger          NOT NULL,
+  block_no         uinteger          NOT NULL,       -- In the cardano-sl code base, this is the 'ChainDifficulty'
+                                                     -- block header field, but it was never really about difficulty
+                                                     -- but rather block height. However the cardano-sl code does
+                                                     -- not increment this value for EBBs, so its not really a
+                                                     -- block height.
+
 
   previous         hash
       REFERENCES blocks (blockid),                    -- Needs to be NULL-able because the first block has a previous
                                                       -- hash which does not exist in this table.
 
-  block_issuer     hash              NOT NULL,				-- SHELLEY: Which pool produced the block.
-  vrfKey           hash              NOT NULL,        -- SHELLEY: VRF verification key
+  block_issuer     hash,                              -- SHELLEY: Which pool produced the block.
+  vrfKey           hash,                              -- SHELLEY: VRF verification key
 
-  nonce_vrf        vrf_certificate   NOT NULL,        -- SHELLEY: nonce proof
-  leader_vrf       vrf_certificate   NOT NULL,        -- SHELLEY: leader election value
+  nonce_vrf        vrf_certificate,                   -- SHELLEY: nonce proof
+  leader_vrf       vrf_certificate,                   -- SHELLEY: leader election value
 
-  op_cert          operational_certificate NOT NULL,  -- SHELLEY: operational certificate
-  proto_version    protocol_version  NOT NULL,        -- SHELLEY: protocol version
+  op_cert          operational_certificate,           -- SHELLEY: operational certificate
+  proto_version    protocol_version,                  -- SHELLEY: protocol version
 
-  merkle_root      hash,                              -- Could be NULL-able in Byron era blocks for EBBs
+  merkle_root      hash,                              -- Could be NULL-able in BYRON era blocks to store EBBs
+                                                      -- Will not be NULL in SHELLEY era blocks
 
   size             uinteger          NOT NULL,        -- Block size in bytes.
 
    -- signature
-   body_signature signature          NOT NULL         -- KES signature
+   body_signature signature                           -- SHELLEY: KES signature
 );
 
 
@@ -263,23 +308,21 @@ CREATE TYPE withdrawal as (
 -- ADDED metadata/hash and certificates for SHELLEY.
 -- TTL (time to live) is not included since the transaction will only be on the chain if it has succeeded
 -- May need to add payment verification key map, and script map.
--- Note that if one of tx_md_hash and tx_metadata is NULL, then so will the other.
 -- Optional protocol parameter updates are not included - they are recorded separately
--- Do we need withdrawals in the database?
 
 CREATE TABLE txs (
   txid            hash                   PRIMARY KEY,
   in_blockid      hash                   NOT NULL REFERENCES blocks (blockid) ON DELETE CASCADE,
 
   fee             lovelace               NOT NULL,
-  withdrawals     withdrawal ARRAY,
-  metadata        tx_metadata
+  withdrawals     withdrawal ARRAY,                   -- SHELLEY: NULL in BYRON
+  metadata        tx_metadata                         -- SHELLEY: NULL in BYRON
 );
 
 
 
 -- Transaction output
--- output address changed to (base) address type FOR SHELLEY
+-- output address changed from hash to address type FOR SHELLEY
 
 CREATE TABLE txouts (
   in_txid      hash                REFERENCES txs (txid) ON DELETE CASCADE,
@@ -341,6 +384,7 @@ CREATE VIEW utxo_resolved AS
   FROM utxo INNER JOIN txouts ON
        (utxo.txid  = txouts.in_txid AND
         utxo.index = txouts.index);
+
 
 
 
@@ -560,5 +604,25 @@ CREATE TABLE stake (
    slot_no              uinteger          NOT NULL,           -- when was the change made
    stake                lovelace          NOT NULL,
 
-   PRIMARY KEY (stakekey_address,stake)
+   PRIMARY KEY (stakekey_address,slot_no)
+);
+
+
+
+-- NEW for SHELLEY
+-- Pool Performance Data, recorded at the end of the epoch
+-- influence factor, active slot coefficient, decentralisation can be obtained from the
+-- protocol update parameter table (with some effort to choose those in force for the correct epoch)
+
+CREATE TABLE pool_performance (
+   pool_id                  hash              NOT NULL,         -- hash of the pool VRF key
+   epoch_no                 uinteger          NOT NULL,         -- what epoch does the data refer to
+   desirability             float             NOT NULL,         -- what is the relative desirability of the pool
+   blocks_produced          uinteger          NOT NULL,         -- How many blocks did the pool produce
+   apparent_performance     percentage        NOT NULL,         -- what is the apparent performance of the pool
+   total_stake              lovelace          NOT NULL,         -- how much stake does the pool control
+   delegated_stake          lovelace          NOT NULL,         -- how much stake was delegated to the pool during the epoch
+   pledge_honoured          boolean           NOT NULL,         -- was the pledge honoured at the end of the epoch - could be important to know since could impact rewards
+
+   PRIMARY KEY (pool_id,epoch_no)
 );
