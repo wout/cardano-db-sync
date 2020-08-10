@@ -36,11 +36,11 @@ nix-build -A scripts.mainnet.node -o mainnet-node-local
 git clone https://github.com/input-output-hk/cardano-db-sync
 cd cardano-db-sync
 nix-build -A cardano-db-sync -o db-sync-node
-scripts/postgresql-setup.sh --createdb
 PGPASSFILE=config/pgpass db-sync-node/bin/cardano-db-sync \
     --config config/mainnet-config.yaml \
     --socket-path ../cardano-node/state-node-mainnet/node.socket \
     --schema-dir schema/
+scripts/postgresql-setup.sh --createdb
 ```
 
 ### Run two chains with a single PostgreSQL instance
