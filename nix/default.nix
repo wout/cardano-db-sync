@@ -3,12 +3,13 @@
 , config ? {}
 , sourcesOverride ? {}
 , gitrev ? null
+, ownHaskellNix ? null
 }:
 let
   sources = import ./sources.nix { inherit pkgs; }
     // sourcesOverride;
   iohkNix = import sources.iohk-nix {};
-  haskellNix = import sources."haskell.nix" {};
+  haskellNix = if ownHaskellNix != null then ownHaskellNix else import sources."haskell.nix" {};
   # use our own nixpkgs if it exists in our sources,
   # otherwise use iohkNix default nixpkgs.
   nixpkgs = if (sources ? nixpkgs)
