@@ -68,6 +68,11 @@ in {
           default = true;
           description = "generate pgpass";
         };
+        generateDatabase = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "generate db and user";
+        };
         socketdir = lib.mkOption {
           type = lib.types.str;
           default = "/run/postgresql";
@@ -98,17 +103,36 @@ in {
     in {
       pgpass = builtins.toFile "pgpass" "${cfg.postgres.socketdir}:${toString cfg.postgres.port}:${cfg.postgres.database}:${cfg.postgres.user}:*";
       script = pkgs.writeShellScript "cardano-db-sync" ''
+        set -exuo pipefail
+
         ${if (cfg.socketPath == null) then ''if [ -z "$CARDANO_NODE_SOCKET_PATH" ]
         then
           echo "You must set \$CARDANO_NODE_SOCKET_PATH"
           exit 1
         fi'' else "export CARDANO_NODE_SOCKET_PATH=\"${cfg.socketPath}\""}
-        export PATH=${lib.makeBinPath [ pkgs.postgresql ]}:$PATH
+        export PATH=${lib.makeBinPath [ pkgs.postgresql pkgs.coreutils ]}:$PATH
 
         ${lib.optionalString cfg.postgres.generatePGPASS ''
-        cp ${cfg.pgpass} ./pgpass
-        chmod 0600 ./pgpass
-        export PGPASSFILE=$(pwd)/pgpass
+          cp ${cfg.pgpass} ./pgpass
+          export PGPASSFILE=$(pwd)/pgpass
+          chmod 0600 "$PGPASSFILE"
+        ''}
+
+        ${lib.optionalString cfg.postgres.generateDatabase ''
+          PSQL="psql --port 5432 --host ${cfg.postgres.socketdir} --dbname postgres"
+
+          echo "Waiting for postgresql startup..."
+          until pg_isready --quiet --host ${cfg.postgres.socketdir}; do
+            sleep 1
+          done
+
+          $PSQL -tAc "SELECT 1 FROM pg_database WHERE datname = '${cfg.postgres.database}'" | grep -q 1 \
+            || $PSQL -tAc 'CREATE DATABASE "${cfg.postgres.database}"'
+
+          $PSQL -tAc "SELECT 1 FROM pg_roles WHERE rolname='${cfg.postgres.user}'" | grep -q 1 \
+            || $PSQL -tAc 'CREATE USER "${cfg.postgres.user}"'
+
+          $PSQL -tAc 'GRANT ALL PRIVILEGES ON DATABASE ${cfg.postgres.database} TO "${cfg.postgres.user}"'
         ''}
 
         mkdir -p log-dir
