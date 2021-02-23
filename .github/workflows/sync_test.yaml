@@ -117,8 +117,7 @@ jobs:
           ls -l
 
       - name: Build cardano-db-sync-extended
-        run: |
-          cabal build cardano-db-sync-extended
+        run: cabal build cardano-db-sync-extended
 
       - name: Create database user
         run: sudo -u postgres createuser --createdb --superuser runner
