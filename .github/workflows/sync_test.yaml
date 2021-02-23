@@ -1,0 +1,142 @@
+name: db-sync sync tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_tag:
+        description: cardano-node tag that will be used with db-sync; if not specified then latest released version will be used
+        required: false
+        default: "1.25.0"
+      db_sync_branch:
+        description: cardano-db-sync branch that will be used
+        required: true
+        default: "release/8.0.x"
+
+jobs:
+  setup_and_start_db_sync:
+    strategy:
+      matrix:
+        ghc: ["8.6.5"]
+        os: [ubuntu-latest]
+        env: [shelley_qa]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 700
+    steps:
+
+      - name: Print selected tags for node and db-sync
+        run: |
+          echo "node_tag: ${{ github.event.inputs.node_tag }}"
+          echo "db_sync_branch: ${{ github.event.inputs.db_sync_branch }}"
+
+      - name: Checkout cardano-db-sync repo
+        uses: actions/checkout@v2
+        with:
+          repository: input-output-hk/cardano-db-sync
+          path: cardano-db-sync
+          ref: ${{ github.event.inputs.db_sync_branch }}
+
+      - name: Start node
+        run: |
+          ./sync-tests/start_node.sh -e ${{ matrix.env }} -t ${{ github.event.inputs.node_tag }}
+
+      - name: Select build directory
+        run: |
+          echo "CABAL_BUILDDIR=dist"              >> $GITHUB_ENV
+          echo "PLAN_JSON=dist/cache/plan.json"   >> $GITHUB_ENV
+          echo "$HOME/.cabal/bin"                 >> $GITHUB_PATH
+
+      - name: Install Postgres (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev libpq5 postgresql
+          sudo pg_ctlcluster 13 main start
+
+      - name: Check if postgres is running
+        run: |
+          sleep 20
+          netstat -an
+          ls -al /var/run/postgresql/.s.PGSQL.5432 || true
+          ls -al || true
+
+      - name: Select cabal version
+        run: echo "CABAL_VERSION=3.4.0.0-rc4"  >> $GITHUB_ENV
+      - uses: haskell/actions/setup@v1
+        id: setup-haskell
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+
+      - name: Haskell versions
+        run: |
+          ghc --version
+          cabal --version
+
+      - name: Install build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libsodium23 libsodium-dev
+          sudo apt-get -y install libsystemd0 libsystemd-dev
+          sudo apt-get -y remove --purge software-properties-common
+          sudo apt-get -y autoremove
+
+      - name: Cabal update
+        run: cabal update
+
+      - name: Configure Cabal
+        run: |
+          cd cardano-db-sync
+          cabal configure --builddir="$CABAL_BUILDDIR" --write-ghc-environment-files=always
+
+      - name: Add libsodium
+        run: |
+          cd cardano-db-sync
+          cat >> cabal.project.local <<EOF
+          package cardano-crypto-praos
+            flags: -external-libsodium-vrf
+          EOF
+
+      - name: Record dependencies
+        run: |
+          cd cardano-db-sync
+          cat ${{ env.PLAN_JSON }} | jq -r '."install-plan"[].id' | sort > dependencies.txt
+      - uses: actions/cache@v2
+
+        name: Cache cabal store
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: cache-cabal-store-v1-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('dependencies.txt') }}
+          restore-keys: |
+            cache-cabal-store-v1-${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('dependencies.txt') }}
+            cache-cabal-store-v1-${{ runner.os }}-${{ matrix.ghc }}-
+
+      - name: Check directory structure
+        run: |
+          echo "I am here: $PWD"
+          echo "Dir listing:"
+          ls -l
+
+      - name: Build cardano-db-sync-extended
+        run: |
+          cabal build cardano-db-sync-extended
+
+      - name: Create database user
+        run: sudo -u postgres createuser --createdb --superuser runner
+
+      - name: Setup and start cardano-db-sync-extended
+        timeout-minutes: 600
+        run: |
+          cd sync-tests
+          ./start_db_sync.sh -e ${{ matrix.env }}
+
+      - name: Generate node artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: node_logs_${{ matrix.env }}
+          path: ${{ github.workspace }}/cardano-node/node_logfile.log
+
+      - name: Generate db-sync artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: db_sync_logs_${{ matrix.env }}
+          path: ${{ github.workspace }}/cardano-db-sync/logs/*
