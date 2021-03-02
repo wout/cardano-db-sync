@@ -9,6 +9,7 @@ module Cardano.Sync.Types
   , SyncState (..)
   , Block (..)
   , Meta (..)
+  , MetricsLayer (..)
   ) where
 
 import           Cardano.Prelude hiding (Meta)
@@ -66,3 +67,16 @@ newtype BlockId = BlockId Int
 -- @Word64@ is valid as well.
 newtype MetaId = MetaId Int
     deriving (Eq, Show)
+
+-- The metrics we use.
+-- Kept as a separate struct and do not put into environment because
+-- when we need to test functions using this we need to initialize the
+-- whole environment and not just pass in the layer. This shows clearly
+-- that it needs to remain a separate parameter passed around where needed.
+data MetricsLayer = MetricsLayer
+    { mlSetNodeBlockHeight :: Word64 -> IO ()
+    , mlSetDbQueueLength :: Natural -> IO ()
+    , mlSetDbBlockHeight :: Word64 -> IO ()
+    , mlSetDbSlotHeight :: Word64 -> IO ()
+    }
+

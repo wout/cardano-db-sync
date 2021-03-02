@@ -17,6 +17,7 @@ module Cardano.Sync.Util
   , textShow
   , tipBlockNo
   , traverseMEither
+  , emptyMetricsLayer
   ) where
 
 import           Cardano.Prelude hiding (catch)
@@ -131,3 +132,14 @@ renderSlotList xs
   | length xs < 10 = textShow (map unSlotNo xs)
   | otherwise =
       mconcat [ "[", textShow (unSlotNo $ List.head xs), "..", textShow (unSlotNo $ List.last xs), "]" ]
+
+-- | This is required for testing or when disabling the metrics layer.
+emptyMetricsLayer :: MetricsLayer
+emptyMetricsLayer =
+    MetricsLayer
+        { mlSetNodeBlockHeight = \_ -> pure ()
+        , mlSetDbQueueLength = \_ -> pure ()
+        , mlSetDbBlockHeight = \_ -> pure ()
+        , mlSetDbSlotHeight = \_ -> pure ()
+        }
+
