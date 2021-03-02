@@ -110,6 +110,7 @@
                   log_line_prefix = '[%p] '
                   unix_socket_directories = '/alloc'
                   listen_addresses = '''
+                  max_locks_per_transaction = 1024
                 '';
               };
 
