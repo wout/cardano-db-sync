@@ -111,6 +111,7 @@
                   unix_socket_directories = '/alloc'
                   listen_addresses = '''
                   max_locks_per_transaction = 1024
+                  log_min_messages = 'DEBUG5'
                 '';
               };
 
