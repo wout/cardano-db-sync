@@ -37,7 +37,7 @@ import           Cardano.DbSync.Plugin.Default (defDbSyncNodePlugin)
 import           Cardano.DbSync.Rollback (unsafeRollback)
 import           Cardano.Sync.Database (runDbThread)
 
-import           Cardano.Sync (Block (..), SyncDataLayer (..), SyncNodePlugin (..),
+import           Cardano.Sync (Block (..), MetricsLayer, SyncDataLayer (..), SyncNodePlugin (..),
                    configureLogging, runSyncNode)
 import           Cardano.Sync.Config.Types (ConfigFile (..), GenesisFile (..), LedgerStateDir (..),
                    MigrationDir (..), NetworkName (..), SocketPath (..), SyncCommand (..),
@@ -49,8 +49,8 @@ import           Database.Persist.Postgresql (withPostgresqlConn)
 import           Database.Persist.Sql (SqlBackend)
 
 
-runDbSyncNode :: (SqlBackend -> SyncNodePlugin) -> SyncNodeParams -> IO ()
-runDbSyncNode mkPlugin params = do
+runDbSyncNode :: MetricsLayer -> (SqlBackend -> SyncNodePlugin) -> SyncNodeParams -> IO ()
+runDbSyncNode metricsLayer mkPlugin params = do
 
     -- Read the PG connection info
     pgConfig <- DB.readPGPassFileEnv Nothing
@@ -69,7 +69,7 @@ runDbSyncNode mkPlugin params = do
           Just slotNo -> void $ unsafeRollback trce slotNo
           Nothing -> pure ()
 
-        runSyncNode (mkSyncDataLayer trce backend) trce (mkPlugin backend)
+        runSyncNode (mkSyncDataLayer trce backend) metricsLayer trce (mkPlugin backend)
             params (insertValidateGenesisDist backend) runDbThread
 
 -- -------------------------------------------------------------------------------------------------
