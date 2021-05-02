@@ -472,6 +472,19 @@ share
     UniquePoolOfflineData  poolId hash
     deriving Show
 
+  -- The pools themselves (identified by the owner vkey hash)
+
+  Pool
+    poolId              Types.PoolIdentifier      sqltype=text
+    UniquePoolId poolId
+
+  -- The retired pools.
+
+  RetiredPool
+    poolId              Types.PoolIdentifier      sqltype=text
+    blockNo             Word64                    sqltype=uinteger -- When the pool was retired.
+    UniqueRetiredPoolId poolId
+
   -- The pool metadata fetch error. We duplicate the poolId for easy access.
   -- TODO(KS): Debatable whether we need to persist this between migrations!
 
