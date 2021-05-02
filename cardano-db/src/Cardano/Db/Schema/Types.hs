@@ -6,8 +6,8 @@ module Cardano.Db.Schema.Types
   , AddressHash (..)
   , PaymentAddrHash (..)
   , PoolIdent (..)
-  , PoolMetaHash (..)
   , PoolUrl (..)
+  , RetiredPool (..)
   , TickerName (..)
   ) where
 
@@ -42,11 +42,11 @@ newtype PoolIdent
   deriving (Eq, Ord, Generic)
   deriving Show via (Quiet PoolIdent)
 
--- | The raw binary hash of a stake pool's metadata.
-newtype PoolMetaHash
-  = PoolMetaHash { unPoolMetaHash :: ByteString }
+-- Raw Pool Hash (not Base16 encided)
+newtype RetiredPool
+  = RetiredPool { unRetiredPool :: ByteString }
   deriving (Eq, Ord, Generic)
-  deriving Show via (Quiet PoolMetaHash)
+  deriving Show via (Quiet RetiredPool)
 
 -- | The pool url wrapper so we have some additional safety.
 newtype PoolUrl

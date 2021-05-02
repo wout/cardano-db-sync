@@ -97,7 +97,7 @@ insertAdaPots :: (MonadBaseControl IO m, MonadIO m) => AdaPots -> ReaderT SqlBac
 insertAdaPots = insertCheckUnique "AdaPots"
 
 insertAdminUser :: (MonadBaseControl IO m, MonadIO m) => AdminUser -> ReaderT SqlBackend m AdminUserId
-insertAdminUser = insertUnchecked "AdminUser"
+insertAdminUser = insertCheckUnique "AdminUser"
 
 insertBlock :: (MonadBaseControl IO m, MonadIO m) => Block -> ReaderT SqlBackend m BlockId
 insertBlock = insertUnchecked "Block"
