@@ -246,11 +246,10 @@ insertTxIn
     => Trace IO Text -> DB.TxId -> Generic.TxIn
     -> ExceptT SyncNodeError (ReaderT SqlBackend m) ()
 insertTxIn _tracer txInId (Generic.TxIn txId index) = do
-  txOutId <- liftLookupFail "insertTxIn" $ DB.queryTxId txId
   void . lift . DB.insertTxIn $
             DB.TxIn
               { DB.txInTxInId = txInId
-              , DB.txInTxOutId = txOutId
+              , DB.txInTxOutId = DB.TxKey $ DB.DbTxHash txId
               , DB.txInTxOutIndex = fromIntegral index
               }
 
@@ -259,11 +258,10 @@ insertCollateralTxIn
     => Trace IO Text -> DB.TxId -> Generic.TxIn
     -> ExceptT SyncNodeError (ReaderT SqlBackend m) ()
 insertCollateralTxIn _tracer txInId (Generic.TxIn txId index) = do
-  txOutId <- liftLookupFail "insertCollateralTxIn" $ DB.queryTxId txId
   void . lift . DB.insertCollateralTxIn $
             DB.CollateralTxIn
               { DB.collateralTxInTxInId = txInId
-              , DB.collateralTxInTxOutId = txOutId
+              , DB.collateralTxInTxOutId = DB.TxKey $ DB.DbTxHash txId
               , DB.collateralTxInTxOutIndex = fromIntegral index
               }
 

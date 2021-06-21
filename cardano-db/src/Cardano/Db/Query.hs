@@ -39,7 +39,6 @@ module Cardano.Db.Query
   , querySlotUtcTime
   , queryTotalSupply
   , queryTxCount
-  , queryTxId
   , queryTxInCount
   , queryTxOutCount
   , queryTxOutValue
@@ -479,15 +478,6 @@ queryTxCount = do
   res <- select . from $ \ (_ :: SqlExpr (Entity Tx)) -> do
             pure countRows
   pure $ maybe 0 unValue (listToMaybe res)
-
-
--- | Get the 'TxId' associated with the given hash.
-queryTxId :: MonadIO m => ByteString -> ReaderT SqlBackend m (Either LookupFail TxId)
-queryTxId hash = do
-  res <- select . from $ \ tx -> do
-            where_ (tx ^. TxHash ==. val (DbTxHash hash))
-            pure tx
-  pure $ maybeToEither (DbLookupTxHash hash) entityKey (listToMaybe res)
 
 -- | Count the number of transactions in the Tx table.
 queryTxInCount :: MonadIO m => ReaderT SqlBackend m Word

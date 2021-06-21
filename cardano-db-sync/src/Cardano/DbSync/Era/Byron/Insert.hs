@@ -229,11 +229,10 @@ insertTxIn
     => Trace IO Text -> DB.TxId -> Byron.TxIn
     -> ExceptT SyncNodeError (ReaderT SqlBackend m) ()
 insertTxIn _tracer txInId (Byron.TxInUtxo txHash inIndex) = do
-  txOutId <- liftLookupFail "insertTxIn" $ DB.queryTxId (Byron.unTxHash txHash)
   void . lift . DB.insertTxIn $
             DB.TxIn
               { DB.txInTxInId = txInId
-              , DB.txInTxOutId = txOutId
+              , DB.txInTxOutId = DB.TxKey $ DB.DbTxHash $ Byron.unTxHash txHash
               , DB.txInTxOutIndex = fromIntegral inIndex
               }
 
