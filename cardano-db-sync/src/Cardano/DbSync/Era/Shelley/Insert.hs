@@ -192,7 +192,7 @@ insertTx tracer network lStateSnap blkId epochNo slotNo blockIndex tx = do
     -- Insert transaction and get txId from the DB.
     txId <- lift . DB.insertTx $
               DB.Tx
-                { DB.txHash = Generic.txHash tx
+                { DB.txHash = DB.DbTxHash $ Generic.txHash tx
                 , DB.txBlockId = blkId
                 , DB.txBlockIndex = blockIndex
                 , DB.txOutSum = DB.DbLovelace (fromIntegral outSum)
@@ -420,22 +420,17 @@ insertStakeAddressRefIfMissing
     :: (MonadBaseControl IO m, MonadIO m)
     => DB.TxId -> Shelley.Addr StandardCrypto
     -> ReaderT SqlBackend m (Maybe DB.StakeAddressId)
-insertStakeAddressRefIfMissing txId addr =
-    maybe insertSAR (pure . Just) =<< queryStakeAddressRef addr
-  where
-    insertSAR :: (MonadBaseControl IO m, MonadIO m) => ReaderT SqlBackend m (Maybe DB.StakeAddressId)
-    insertSAR =
-      case addr of
-        Shelley.AddrBootstrap {} -> pure Nothing
-        Shelley.Addr nw _pcred sref ->
-          case sref of
-            Shelley.StakeRefBase cred ->
-              Just <$> insertStakeAddress txId (Shelley.RewardAcnt nw cred)
-            Shelley.StakeRefPtr {} ->
-              -- This happens when users pay to payment addresses that refer to a stake addresses
-              -- by pointer, but where the pointer does not refer to a registered stake address.
-              pure Nothing
-            Shelley.StakeRefNull -> pure Nothing
+insertStakeAddressRefIfMissing txId addr = case addr of
+    Shelley.AddrBootstrap {} -> pure Nothing
+    Shelley.Addr nw _pcred sref ->
+      case sref of
+        Shelley.StakeRefBase cred ->
+          Just <$> insertStakeAddress txId (Shelley.RewardAcnt nw cred)
+        Shelley.StakeRefPtr (Shelley.Ptr slotNo txIx certIx) ->
+          -- This happens when users pay to payment addresses that refer to a stake addresses
+          -- by pointer, but where the pointer does not refer to a registered stake address.
+          queryStakeDelegation slotNo txIx certIx
+        Shelley.StakeRefNull -> pure Nothing
 
 insertPoolOwner
     :: (MonadBaseControl IO m, MonadIO m)

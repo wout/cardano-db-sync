@@ -83,7 +83,7 @@ partitionUtxos =
     accept (addr, _) =
       Text.length addr <= 180 && not (isRedeemTextAddress addr)
 
-queryAtSlot :: Word64 -> IO (Ada, [(TxOut, ByteString)], Ada, Either LookupFail UTCTime)
+queryAtSlot :: Word64 -> IO (Ada, [(TxOut, DbTxHash)], Ada, Either LookupFail UTCTime)
 queryAtSlot slotNo =
   -- Run the following queries in a single transaction.
   runDbNoLogging $ do

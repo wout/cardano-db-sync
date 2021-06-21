@@ -485,7 +485,7 @@ queryTxCount = do
 queryTxId :: MonadIO m => ByteString -> ReaderT SqlBackend m (Either LookupFail TxId)
 queryTxId hash = do
   res <- select . from $ \ tx -> do
-            where_ (tx ^. TxHash ==. val hash)
+            where_ (tx ^. TxHash ==. val (DbTxHash hash))
             pure tx
   pure $ maybeToEither (DbLookupTxHash hash) entityKey (listToMaybe res)
 
@@ -510,7 +510,7 @@ queryTxOutValue (hash, index) = do
   res <- select . from $ \ (tx `InnerJoin` txOut) -> do
             on (tx ^. TxId ==. txOut ^. TxOutTxId)
             where_ (txOut ^. TxOutIndex ==. val index
-                    &&. tx ^. TxHash ==. val hash
+                    &&. tx ^. TxHash ==. val (DbTxHash hash)
                     )
             pure $ txOut ^. TxOutValue
   pure $ maybeToEither (DbLookupTxHash hash) unValue (listToMaybe res)
@@ -518,7 +518,7 @@ queryTxOutValue (hash, index) = do
 -- | Get the UTxO set after the specified 'BlockId' has been applied to the chain.
 -- Not exported because 'BlockId' to 'BlockHash' relationship may not be the same
 -- across machines.
-queryUtxoAtBlockId :: MonadIO m => BlockId -> ReaderT SqlBackend m [(TxOut, ByteString)]
+queryUtxoAtBlockId :: MonadIO m => BlockId -> ReaderT SqlBackend m [(TxOut, DbTxHash)]
 queryUtxoAtBlockId blkid = do
     -- tx1 refers to the tx of the input spending this output (if it is ever spent)
     -- tx2 refers to the tx of the output
@@ -531,17 +531,17 @@ queryUtxoAtBlockId blkid = do
                   pure (txout, tx2 ^. TxHash)
     pure $ map convert outputs
   where
-    convert :: (Entity TxOut, Value ByteString) -> (TxOut, ByteString)
+    convert :: (Entity TxOut, Value DbTxHash) -> (TxOut, DbTxHash)
     convert (out, hash) = (entityVal out, unValue hash)
 
-queryUtxoAtBlockNo :: MonadIO m => Word64 -> ReaderT SqlBackend m [(TxOut, ByteString)]
+queryUtxoAtBlockNo :: MonadIO m => Word64 -> ReaderT SqlBackend m [(TxOut, DbTxHash)]
 queryUtxoAtBlockNo blkNo = do
   eblkId <- select . from $ \blk -> do
                 where_ (blk ^. BlockBlockNo ==. just (val blkNo))
                 pure (blk ^. BlockId)
   maybe (pure []) (queryUtxoAtBlockId . unValue) (listToMaybe eblkId)
 
-queryUtxoAtSlotNo :: MonadIO m => Word64 -> ReaderT SqlBackend m [(TxOut, ByteString)]
+queryUtxoAtSlotNo :: MonadIO m => Word64 -> ReaderT SqlBackend m [(TxOut, DbTxHash)]
 queryUtxoAtSlotNo slotNo = do
   eblkId <- select . from $ \blk -> do
                 where_ (blk ^. BlockSlotNo ==. just (val slotNo))
@@ -626,8 +626,8 @@ maybeToEither e f =
 unBlockId :: BlockId -> Word64
 unBlockId = fromIntegral . unSqlBackendKey . unBlockKey
 
-unTxId :: TxId -> Word64
-unTxId = fromIntegral . unSqlBackendKey . unTxKey
+unTxId :: TxId -> ByteString
+unTxId = unDbTxHash . unTxKey
 
 unTxInId :: TxInId -> Word64
 unTxInId = fromIntegral . unSqlBackendKey . unTxInKey

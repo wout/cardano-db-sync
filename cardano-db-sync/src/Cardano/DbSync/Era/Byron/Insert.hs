@@ -182,7 +182,7 @@ insertTx tracer blkId tx blockIndex = do
     valFee <- firstExceptT annotateTx $ newExceptT (calculateTxFee $ Byron.taTx tx)
     txId <- lift . DB.insertTx $
               DB.Tx
-                { DB.txHash = Byron.unTxHash $ Crypto.serializeCborHash (Byron.taTx tx)
+                { DB.txHash = DB.DbTxHash $ Byron.unTxHash $ Crypto.serializeCborHash (Byron.taTx tx)
                 , DB.txBlockId = blkId
                 , DB.txBlockIndex = blockIndex
                 , DB.txOutSum = vfValue valFee

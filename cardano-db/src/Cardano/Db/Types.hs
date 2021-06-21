@@ -11,6 +11,7 @@ module Cardano.Db.Types
   , DbInt65 (..)
   , DbWord64 (..)
   , SyncState (..)
+  , DbTxHash (..)
   , deltaCoinToDbInt65
   , integerToDbInt65
   , lovelaceToAda
@@ -30,6 +31,7 @@ import           Cardano.Ledger.Coin (DeltaCoin (..))
 import           Data.Aeson.Encoding (unsafeToEncoding)
 import           Data.Aeson.Types (FromJSON (..), ToJSON (..))
 import qualified Data.Aeson.Types as Aeson
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as BS (string8)
 import           Data.Fixed (Micro, showFixed)
 import           Data.Scientific (Scientific)
@@ -82,6 +84,10 @@ newtype DbWord64
   = DbWord64 { unDbWord64 :: Word64 }
   deriving (Eq, Generic)
   deriving (Read, Show) via (Quiet DbWord64)
+
+newtype DbTxHash
+  = DbTxHash { unDbTxHash :: ByteString }
+  deriving (Eq, Ord, Show, Read, Generic)
 
 data SyncState
   = SyncLagging         -- Local tip is lagging the global chain tip.

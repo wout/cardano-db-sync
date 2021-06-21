@@ -19,7 +19,7 @@ module Cardano.Db.Schema where
 
 import           Cardano.Db.Schema.Orphans ()
 
-import           Cardano.Db.Types (DbInt65, DbLovelace, DbWord64, SyncState)
+import           Cardano.Db.Types (DbInt65, DbLovelace, DbWord64, SyncState, DbTxHash)
 
 import           Data.ByteString.Char8 (ByteString)
 import           Data.Int (Int64)
@@ -95,7 +95,7 @@ share
     UniqueBlock         hash
 
   Tx
-    hash                ByteString          sqltype=hash32type
+    hash                DbTxHash            sqltype=hash32type
     blockId             BlockId             OnDeleteCascade     -- This type is the primary key for the 'block' table.
     blockIndex          Word64              sqltype=uinteger    -- The index of this transaction within the block.
     outSum              DbLovelace          sqltype=lovelace
@@ -107,7 +107,7 @@ share
     invalidHereafter    DbWord64 Maybe      sqltype=word64type
 
     validContract       Bool                                    -- False if the contract is invalid, True otherwise.
-    UniqueTx            hash
+    Primary             hash
     deriving Show
 
   StakeAddress          -- Can be an address of a script hash

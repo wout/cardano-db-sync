@@ -63,11 +63,13 @@ library
                       , extra
                       , fast-logger
                       , filepath
+                      , http-api-data
                       , iohk-monitoring
                       , lifted-base
                       , monad-control
                       , monad-logger
                       , ouroboros-network
+                      , path-pieces
                       , persistent
                       , persistent-postgresql
                       -- , persistent-template >= 2.7.0

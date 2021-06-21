@@ -61,8 +61,8 @@ import           Data.Proxy (Proxy (..))
 import           Data.Text (Text)
 import qualified Data.Text as Text
 
-import           Database.Persist.Class (AtLeastOneUniqueKey, PersistEntityBackend, insert,
-                   insertBy, replaceUnique)
+import           Database.Persist.Class (AtLeastOneUniqueKey, PersistEntityBackend, PersistEntity,
+                   insert, insertBy, replaceUnique)
 import           Database.Persist.Sql (OnlyOneUniqueKey, PersistRecordBackend, SqlBackend,
                    UniqueDef, entityDB, entityDef, entityUniques, rawExecute, rawSql,
                    toPersistFields, toPersistValue, uniqueDBName)
@@ -72,7 +72,7 @@ import           Database.Persist.Types (ConstraintNameDB (..), EntityNameDB (..
 import           Database.PostgreSQL.Simple (SqlError)
 
 import           Cardano.Db.Schema
-
+import           Cardano.Db.Types
 
 -- The original naive way of inserting rows into Postgres was:
 --
@@ -187,7 +187,7 @@ insertTreasury :: (MonadBaseControl IO m, MonadIO m) => Treasury -> ReaderT SqlB
 insertTreasury = insertUnchecked "Treasury"
 
 insertTx :: (MonadBaseControl IO m, MonadIO m) => Tx -> ReaderT SqlBackend m TxId
-insertTx tx = insertUnchecked ("Tx: " ++ show (BS.length (txHash tx))) tx
+insertTx tx = insertUnchecked' ("Tx: " ++ show (BS.length (unDbTxHash $ txHash tx))) tx
 
 insertTxIn :: (MonadBaseControl IO m, MonadIO m) => TxIn -> ReaderT SqlBackend m TxInId
 insertTxIn = insertUnchecked "TxIn"
@@ -330,6 +330,22 @@ insertUnchecked vtype =
     exceptHandler e =
       liftIO $ throwIO (DbInsertException vtype e)
 
+-- Insert without checking uniqueness constraints. This should be safe for most tables
+-- even tables with uniqueness constraints, especially block, tx and many others, where
+-- uniqueness is enforced by the ledger.
+insertUnchecked'
+    :: ( PersistEntity record
+       , MonadIO m
+       , MonadBaseControl IO m
+       , PersistEntityBackend record ~ SqlBackend
+       )
+    => String -> record -> ReaderT SqlBackend m (Key record)
+insertUnchecked' vtype =
+    handle exceptHandler . insert
+  where
+    exceptHandler :: MonadIO m => SqlError -> ReaderT SqlBackend m a
+    exceptHandler e =
+      liftIO $ throwIO (DbInsertException vtype e)
 
 -- This is cargo culted from Persistent because it is not exported.
 escapeFieldName :: FieldNameDB -> Text

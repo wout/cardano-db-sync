@@ -13,6 +13,7 @@ module Cardano.DbSync.Era.Shelley.Query
   , queryTxInputSum
 
   , queryStakeAddressIdPair
+  , queryStakeDelegation
   , queryPoolHashIdPair
   , queryPoolUpdateByBlock
   ) where
@@ -120,23 +121,23 @@ queryStakeAddressRef addr =
             pure $ either (const Nothing) Just eres
           StakeRefPtr (Ptr slotNo txIx certIx) -> queryStakeDelegation slotNo txIx certIx
           StakeRefNull -> pure Nothing
-  where
-    queryStakeDelegation
-        :: MonadIO m
-        => SlotNo -> Natural -> Natural
-        -> ReaderT SqlBackend m (Maybe StakeAddressId)
-    queryStakeDelegation (SlotNo slot) txIx certIx = do
-      res <- select . from $ \ (blk `InnerJoin` tx `InnerJoin` dlg) -> do
-                on (tx ^. TxId ==. dlg ^. DelegationTxId)
-                on (blk ^. BlockId ==. tx ^. TxBlockId)
-                where_ (blk ^. BlockSlotNo ==. just (val slot))
-                where_ (tx ^. TxBlockIndex ==. val (fromIntegral txIx))
-                where_ (dlg ^. DelegationCertIndex ==. val (fromIntegral certIx))
-                -- Need to order by BlockSlotNo descending for correct behavior when there are two
-                -- or more delegation certificates in a single epoch.
-                orderBy [desc (blk ^. BlockSlotNo)]
-                pure (dlg ^. DelegationAddrId)
-      pure $ unValue <$> listToMaybe res
+
+queryStakeDelegation
+    :: MonadIO m
+    => SlotNo -> Natural -> Natural
+    -> ReaderT SqlBackend m (Maybe StakeAddressId)
+queryStakeDelegation (SlotNo slot) txIx certIx = do
+  res <- select . from $ \ (blk `InnerJoin` tx `InnerJoin` dlg) -> do
+            on (tx ^. TxId ==. dlg ^. DelegationTxId)
+            on (blk ^. BlockId ==. tx ^. TxBlockId)
+            where_ (blk ^. BlockSlotNo ==. just (val slot))
+            where_ (tx ^. TxBlockIndex ==. val (fromIntegral txIx))
+            where_ (dlg ^. DelegationCertIndex ==. val (fromIntegral certIx))
+            -- Need to order by BlockSlotNo descending for correct behavior when there are two
+            -- or more delegation certificates in a single epoch.
+            orderBy [desc (blk ^. BlockSlotNo)]
+            pure (dlg ^. DelegationAddrId)
+  pure $ unValue <$> listToMaybe res
 
 queryTxInputSum :: MonadIO m => [Generic.TxIn] -> ReaderT SqlBackend m DbLovelace
 queryTxInputSum txins =

@@ -1,19 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Db.Schema.Orphans where
 
 import           Cardano.Db.Types (DbInt65 (..), DbLovelace (..), DbWord64 (..), SyncState,
-                   readDbInt65, readSyncState, renderSyncState, showDbInt65)
+                   DbTxHash (..), readDbInt65, readSyncState, renderSyncState, showDbInt65)
 
+import           Data.Aeson
 import qualified Data.ByteString.Char8 as BS
+import           Data.Proxy
 import           Data.Ratio (denominator, numerator)
 import qualified Data.Text as Text
 import           Data.WideWord.Word128 (Word128)
 
+import           Database.Persist.Sql (PersistFieldSql (..))
 import           Database.Persist.Class (PersistField (..))
 import           Database.Persist.Types (PersistValue (..))
+
+import           Web.PathPieces (PathPiece (..))
+import           Web.HttpApiData
 
 instance PersistField DbInt65 where
   toPersistValue = PersistText . Text.pack . showDbInt65
@@ -69,3 +76,26 @@ instance PersistField Word128 where
       else Left $ mconcat [ "Failed to parse Haskell type Word128: ", Text.pack (show x) ]
   fromPersistValue x =
     Left $ mconcat [ "Failed to parse Haskell type Word128: ", Text.pack (show x) ]
+
+instance PersistField DbTxHash where
+  toPersistValue = toPersistValue . unDbTxHash
+  fromPersistValue hsh = DbTxHash <$> fromPersistValue hsh
+
+instance PersistFieldSql DbTxHash where
+  sqlType _ = sqlType (Proxy @ BS.ByteString)
+
+instance FromJSON DbTxHash where
+  parseJSON = undefined
+
+instance ToJSON DbTxHash where
+  toJSON = undefined
+
+instance ToHttpApiData DbTxHash where
+  toUrlPiece = showTextData
+
+instance FromHttpApiData DbTxHash where
+  parseUrlPiece = undefined
+
+instance PathPiece DbTxHash where
+  toPathPiece = toUrlPiece
+  fromPathPiece = parseUrlPieceMaybe
