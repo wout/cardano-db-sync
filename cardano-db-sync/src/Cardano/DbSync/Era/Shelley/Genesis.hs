@@ -181,7 +181,6 @@ insertTxOuts blkId (Shelley.TxIn txInId _, txOut) = do
               , DB.txBlockIndex = 0
               , DB.txOutSum = Generic.coinToDbLovelace (txOutCoin txOut)
               , DB.txFee = DB.DbLovelace 0
-              , DB.txDeposit = 0
               , DB.txSize = 0 -- Genesis distribution address to not have a size.
               , DB.txInvalidHereafter = Nothing
               , DB.txInvalidBefore = Nothing

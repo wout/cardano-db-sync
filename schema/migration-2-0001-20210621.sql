@@ -16,7 +16,7 @@ BEGIN
     EXECUTE 'ALTER TABLE "block" ADD CONSTRAINT "unique_block" UNIQUE("hash")' ;
     EXECUTE 'ALTER TABLE "block" ADD CONSTRAINT "block_previous_id_fkey" FOREIGN KEY("previous_id") REFERENCES "block"("id") ON DELETE CASCADE  ON UPDATE RESTRICT' ;
     EXECUTE 'ALTER TABLE "block" ADD CONSTRAINT "block_slot_leader_id_fkey" FOREIGN KEY("slot_leader_id") REFERENCES "slot_leader"("id") ON DELETE CASCADE  ON UPDATE RESTRICT' ;
-    EXECUTE 'CREATe TABLE "tx"( PRIMARY KEY ("hash"),"hash" hash32type NOT NULL,"block_id" INT8 NOT NULL,"block_index" uinteger NOT NULL,"out_sum" lovelace NOT NULL,"fee" lovelace NOT NULL,"deposit" INT8 NOT NULL,"size" uinteger NOT NULL,"invalid_before" word64type NULL,"invalid_hereafter" word64type NULL,"valid_contract" BOOLEAN NOT NULL)' ;
+    EXECUTE 'CREATe TABLE "tx"( PRIMARY KEY ("hash"),"hash" hash32type NOT NULL,"block_id" INT8 NOT NULL,"block_index" uinteger NOT NULL,"out_sum" lovelace NOT NULL,"fee" lovelace NOT NULL,"size" uinteger NOT NULL,"invalid_before" word64type NULL,"invalid_hereafter" word64type NULL,"valid_contract" BOOLEAN NOT NULL)' ;
     EXECUTE 'ALTER TABLE "tx" ADD CONSTRAINT "tx_block_id_fkey" FOREIGN KEY("block_id") REFERENCES "block"("id") ON DELETE CASCADE  ON UPDATE RESTRICT' ;
     EXECUTE 'CREATe TABLE "stake_address"("id" SERIAL8  PRIMARY KEY UNIQUE,"hash_raw" addr29type NOT NULL,"view" VARCHAR NOT NULL,"registered_tx_id" BYTEA NOT NULL)' ;
     EXECUTE 'ALTER TABLE "stake_address" ADD CONSTRAINT "unique_stake_address" UNIQUE("hash_raw")' ;

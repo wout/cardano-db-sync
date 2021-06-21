@@ -187,7 +187,6 @@ insertTx tracer blkId tx blockIndex = do
                 , DB.txBlockIndex = blockIndex
                 , DB.txOutSum = vfValue valFee
                 , DB.txFee = vfFee valFee
-                , DB.txDeposit = 0 -- Byron does not have deposits/refunds
                 -- Would be really nice to have a way to get the transaction size
                 -- without re-serializing it.
                 , DB.txSize = fromIntegral $ BS.length (serialize' $ Byron.taTx tx)

@@ -22,7 +22,6 @@ import           Cardano.Db.Schema.Orphans ()
 import           Cardano.Db.Types (DbInt65, DbLovelace, DbWord64, SyncState, DbTxHash)
 
 import           Data.ByteString.Char8 (ByteString)
-import           Data.Int (Int64)
 import           Data.Text (Text)
 import           Data.Time.Clock (UTCTime)
 import           Data.WideWord.Word128 (Word128)
@@ -100,7 +99,6 @@ share
     blockIndex          Word64              sqltype=uinteger    -- The index of this transaction within the block.
     outSum              DbLovelace          sqltype=lovelace
     fee                 DbLovelace          sqltype=lovelace
-    deposit             Int64                                   -- Needs to allow negaitve values.
     size                Word64              sqltype=uinteger
 
     invalidBefore       DbWord64 Maybe      sqltype=word64type

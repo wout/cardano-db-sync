@@ -74,7 +74,8 @@ reportError ve =
 -- For a given TxId, validate the input/output accounting.
 validateAccounting :: TxId -> ExceptT ValidateError IO ()
 validateAccounting txId = do
-    (fee, deposit) <- liftIO $ runDbNoLogging (queryTxFeeDeposit txId)
+    fee <- liftIO $ runDbNoLogging (queryTxFeeDeposit txId)
+    let deposit = 0
     withdrawal <- liftIO $ runDbNoLogging (queryTxWithdrawal txId)
     ins <- liftIO $ runDbNoLogging (queryTxInputs txId)
     outs <- liftIO $ runDbNoLogging (queryTxOutputs txId)
@@ -105,15 +106,15 @@ queryTestTxIds txCount = do
               pure $ tx ^. TxId
   pure $ unValue <$> tx
 
-queryTxFeeDeposit :: MonadIO m => TxId -> ReaderT SqlBackend m (Ada, Int64)
+queryTxFeeDeposit :: MonadIO m => TxId -> ReaderT SqlBackend m Ada
 queryTxFeeDeposit txId = do
     res <- select . from $ \ tx -> do
               where_ (tx ^. TxId ==. val txId)
-              pure (tx ^. TxFee, tx ^. TxDeposit)
-    pure $ maybe (0, 0) convert (listToMaybe res)
+              pure (tx ^. TxFee)
+    pure $ maybe 0 convert (listToMaybe res)
   where
-    convert :: (Value DbLovelace, Value Int64) -> (Ada, Int64)
-    convert (Value (DbLovelace w64), Value i64) = (word64ToAda w64, i64)
+    convert :: Value DbLovelace -> Ada
+    convert (Value (DbLovelace w64)) = word64ToAda w64
 
 queryTxInputs :: MonadIO m => TxId -> ReaderT SqlBackend m [TxOut]
 queryTxInputs txId = do

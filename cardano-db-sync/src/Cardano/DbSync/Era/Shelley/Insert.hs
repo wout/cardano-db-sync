@@ -27,7 +27,7 @@ import           Cardano.BM.Trace (Trace, logDebug, logInfo, logWarning)
 
 import qualified Cardano.Crypto.Hash as Crypto
 
-import           Cardano.Db (DbLovelace (..), DbWord64 (..), SyncState (..))
+import           Cardano.Db (DbWord64 (..), SyncState (..))
 import qualified Cardano.Db as DB
 
 import           Cardano.DbSync.Era
@@ -185,10 +185,7 @@ insertTx
     => Trace IO Text -> Shelley.Network -> LedgerStateSnapshot -> DB.BlockId -> EpochNo -> SlotNo -> Word64 -> Generic.Tx
     -> ExceptT SyncNodeError (ReaderT SqlBackend m) ()
 insertTx tracer network lStateSnap blkId epochNo slotNo blockIndex tx = do
-    let fees = unCoin $ Generic.txFees tx
-        outSum = unCoin $ Generic.txOutSum tx
-        withdrawalSum = unCoin $ Generic.txWithdrawalSum tx
-    inSum <- fromIntegral . unDbLovelace <$> lift (queryTxInputSum $ Generic.txInputs tx)
+    let outSum = unCoin $ Generic.txOutSum tx
     -- Insert transaction and get txId from the DB.
     txId <- lift . DB.insertTx $
               DB.Tx
@@ -197,7 +194,6 @@ insertTx tracer network lStateSnap blkId epochNo slotNo blockIndex tx = do
                 , DB.txBlockIndex = blockIndex
                 , DB.txOutSum = DB.DbLovelace (fromIntegral outSum)
                 , DB.txFee = DB.DbLovelace (fromIntegral . unCoin $ Generic.txFees tx)
-                , DB.txDeposit = fromIntegral (inSum + withdrawalSum) - fromIntegral (outSum + fees)
                 , DB.txSize = Generic.txSize tx
                 , DB.txInvalidBefore = DbWord64 . unSlotNo <$> Generic.txInvalidBefore tx
                 , DB.txInvalidHereafter = DbWord64 . unSlotNo <$> Generic.txInvalidHereafter tx

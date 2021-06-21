@@ -16,7 +16,6 @@ module Cardano.Db.Query
   , queryBlocksAfterSlot
   , queryCalcEpochEntry
   , queryCheckPoints
-  , queryDepositUpToBlockNo
   , queryEpochEntry
   , queryEpochNo
   , queryFeesUpToBlockNo
@@ -274,14 +273,6 @@ queryCheckPoints limitCount = do
       case (unValue va, unValue vb) of
         (Nothing, _ ) -> Nothing
         (Just a, b) -> Just (a, b)
-
-queryDepositUpToBlockNo :: MonadIO m => Word64 -> ReaderT SqlBackend m Ada
-queryDepositUpToBlockNo blkNo = do
-  res <- select . from $ \ (tx `InnerJoin` blk) -> do
-            on (tx ^. TxBlockId ==. blk ^. BlockId)
-            where_ (blk ^. BlockBlockNo <=. just (val blkNo))
-            pure $ sum_ (tx ^. TxDeposit)
-  pure $ unValueSumAda (listToMaybe res)
 
 queryEpochEntry :: MonadIO m => Word64 -> ReaderT SqlBackend m (Either LookupFail Epoch)
 queryEpochEntry epochNum = do

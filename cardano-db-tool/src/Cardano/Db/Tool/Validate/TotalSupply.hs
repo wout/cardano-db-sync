@@ -23,7 +23,7 @@ validateTotalSupplyDecreasing = do
 
     accounting <- queryInitialSupply (testBlockNo test)
 
-    let total = accSupply accounting + accFees accounting + accDeposit accounting - accWithdrawals accounting
+    let total = accSupply accounting + accFees accounting - accWithdrawals accounting
 
     if genesisSupply test == total
       then putStrLn $ greenText "ok"
@@ -33,7 +33,6 @@ validateTotalSupplyDecreasing = do
 
 data Accounting = Accounting
   { accFees :: Ada
-  , accDeposit :: Ada
   , accWithdrawals :: Ada
   , accSupply :: Ada
   }
@@ -60,6 +59,5 @@ queryInitialSupply blkNo =
   runDbNoLogging $
     Accounting
       <$> queryFeesUpToBlockNo blkNo
-      <*> queryDepositUpToBlockNo blkNo
       <*> queryWithdrawalsUpToBlockNo blkNo
       <*> fmap2 utxoSetSum queryUtxoAtBlockNo blkNo
