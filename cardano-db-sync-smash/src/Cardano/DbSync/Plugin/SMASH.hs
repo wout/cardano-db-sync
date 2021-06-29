@@ -14,7 +14,7 @@ import           Control.Monad.Trans.Except.Extra (firstExceptT, newExceptT)
 import           Cardano.SMASH.DB (DataLayer (..))
 import           Cardano.SMASH.Lib
 import           Cardano.SMASH.Offline (fetchInsertNewPoolMetadata, runOfflineFetchThread)
-import           Cardano.SMASH.Types (PoolIdentifier (..), PoolMetaHash (..), PoolUrl (..))
+import           Cardano.SMASH.Types (PoolIdent (..), PoolUrl (..))
 
 import           Cardano.Chain.Block (ABlockOrBoundary (..))
 
@@ -23,12 +23,14 @@ import qualified Data.ByteString.Base16 as B16
 import           Database.Persist.Sql (IsolationLevel (..), SqlBackend,
                    transactionSaveWithIsolation)
 
+import           Cardano.Ledger.BaseTypes (strictMaybeToMaybe)
+import qualified Cardano.Ledger.BaseTypes as Ledger
+
 import qualified Cardano.SMASH.DB as DB
 
+import           Cardano.Sync (SyncEnv (..), SyncNodePlugin (..))
 import           Cardano.Sync.Error
 import           Cardano.Sync.Types as DbSync
-
-import           Cardano.Sync (SyncEnv (..), SyncNodePlugin (..))
 import           Cardano.Sync.Util
 
 import qualified Cardano.DbSync.Era.Shelley.Generic as Generic
@@ -38,8 +40,6 @@ import qualified Cardano.Sync.Era.Byron.Util as Byron
 import           Cardano.Slotting.Block (BlockNo (..))
 import           Cardano.Slotting.Slot (EpochNo (..), EpochSize (..))
 
-import           Shelley.Spec.Ledger.BaseTypes (strictMaybeToMaybe)
-import qualified Shelley.Spec.Ledger.BaseTypes as Shelley
 import qualified Shelley.Spec.Ledger.TxBody as Shelley
 
 import           Ouroboros.Consensus.Byron.Ledger (ByronBlock (..))
@@ -82,6 +82,7 @@ data BlockName
     = Shelley
     | Allegra
     | Mary
+    | Alonzo
     deriving (Eq, Show)
 
 smashPluginInsertBlock
@@ -115,6 +116,9 @@ insertSMASHBlock dataLayer tracer env (BlockDetails cblk details) =
     BlockMary blk -> do
       insertShelleyBlock Mary dataLayer tracer env (Generic.fromMaryBlock blk) details
 
+    BlockAlonzo blk -> do
+      insertShelleyBlock Alonzo dataLayer tracer env (Generic.fromAlonzoBlock blk) details
+
 -- We don't care about Byron, no pools there.
 -- Also, we don't want to add additional info to clutter the logs.
 insertByronBlock
@@ -133,7 +137,7 @@ insertByronBlock tracer blk _details = do
 
     ABOBBoundary {} -> pure ()
 
-  return $ Right ()
+  pure $ Right ()
 
 -- Here we insert pools.
 insertShelleyBlock
@@ -211,7 +215,7 @@ insertPoolCert dataLayer blockNumber tracer pCert =
   case pCert of
     Shelley.RegPool pParams -> do
         let poolIdHash = B16.encode . Generic.unKeyHashRaw $ Shelley._poolId pParams
-        let poolId = PoolIdentifier . decodeUtf8 $ poolIdHash
+        let poolId = PoolIdent . decodeUtf8 $ poolIdHash
 
         -- Insert pool id
         let addPool = dlAddPool dataLayer
@@ -248,7 +252,7 @@ insertPoolCert dataLayer blockNumber tracer pCert =
     -- RetirePool (KeyHash 'StakePool era) _ = PoolId
     Shelley.RetirePool poolPubKey _epochNum -> do
         let poolIdHash = B16.encode . Generic.unKeyHashRaw $ poolPubKey
-        let poolId = PoolIdentifier . decodeUtf8 $ poolIdHash
+        let poolId = PoolIdent . decodeUtf8 $ poolIdHash
 
         liftIO . logInfo tracer $ "Retiring pool with poolId: " <> show poolId
 
@@ -268,14 +272,14 @@ insertPoolRegister
     -> ExceptT SyncNodeError m ()
 insertPoolRegister dataLayer tracer params = do
   let poolIdHash = B16.encode . Generic.unKeyHashRaw $ Shelley._poolId params
-  let poolId = PoolIdentifier . decodeUtf8 $ poolIdHash
+  let poolId = PoolIdent . decodeUtf8 $ poolIdHash
 
   case strictMaybeToMaybe $ Shelley._poolMD params of
     Just md -> do
 
         liftIO . logInfo tracer $ "Inserting metadata."
-        let metadataUrl = PoolUrl . Shelley.urlToText $ Shelley._poolMDUrl md
-        let metadataHash = PoolMetaHash . decodeUtf8 . B16.encode $ Shelley._poolMDHash md
+        let metadataUrl = PoolUrl . Ledger.urlToText $ Shelley._poolMDUrl md
+        let metadataHash = PoolMetaHash $ Shelley._poolMDHash md
 
         let addMetaDataReference = dlAddMetaDataReference dataLayer
 

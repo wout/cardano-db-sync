@@ -14,12 +14,12 @@ import           Cardano.Prelude
 import           Data.Time.Clock.POSIX (POSIXTime)
 
 import           Cardano.Db
-
 import           Cardano.SMASH.Types (formatTimeToNormal)
+import           Cardano.Sync.Types (PoolMetaHash (..))
 
 data PoolFetchRetry = PoolFetchRetry
   { pfrReferenceId :: !PoolMetadataRefId
-  , pfrPoolIdWtf   :: !PoolIdentifier
+  , pfrPoolIdWtf   :: !PoolIdent
   , pfrPoolUrl     :: !PoolUrl
   , pfrPoolMDHash  :: !PoolMetaHash
   , pfrRetry       :: !Retry

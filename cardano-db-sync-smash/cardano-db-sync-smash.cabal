@@ -52,6 +52,7 @@ library
   build-depends:        base                            >= 4.14         && < 4.16
                       , cardano-db-sync
                       , cardano-db
+                      , cardano-ledger-core
                       , cardano-sync
                       , persistent
                       , cardano-prelude
@@ -80,7 +81,6 @@ library
                       , network-uri
                       , containers
                       , http-client
-                      , http-client-tls
                       , http-types
                       , wai
                       , warp

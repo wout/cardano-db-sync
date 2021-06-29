@@ -5,15 +5,12 @@ module Cardano.Db.Schema.Types
   ( Address (..)
   , AddressHash (..)
   , PaymentAddrHash (..)
-  , PoolIdentifier (..)
-  , PoolMetaHash (..)
-  , PoolMetadataRaw (..)
+  , PoolIdent (..)
   , PoolUrl (..)
   , TickerName (..)
   ) where
 
 import           Data.ByteString.Char8 (ByteString)
-import           Data.Text (Text)
 
 import           Data.Text (Text)
 
@@ -38,18 +35,11 @@ newtype PaymentAddrHash -- Length (32 bytes) enforced by Postgres
   deriving (Read, Show) via (Quiet PaymentAddrHash)
 
 
-<<<<<<< HEAD
 -- The pool's Bech32 encoded identifier (the hash of the stake pool operator's vkey).
 newtype PoolIdent
   = PoolIdent { unPoolIdent :: Text }
   deriving (Eq, Ord, Generic)
   deriving Show via (Quiet PoolIdent)
-
--- | The raw binary hash of a stake pool's metadata.
-newtype PoolMetaHash
-  = PoolMetaHash { unPoolMetaHash :: ByteString }
-  deriving (Eq, Ord, Generic)
-  deriving Show via (Quiet PoolMetaHash)
 
 -- | The pool url wrapper so we have some additional safety.
 newtype PoolUrl
@@ -62,42 +52,4 @@ newtype TickerName
   = TickerName { unTickerName :: Text }
   deriving (Eq, Ord, Generic)
   deriving Show via (Quiet TickerName)
-=======
--- | The stake pool identifier. It is the hash of the stake pool operator's
--- vkey.
---
--- It may be rendered as hex or as bech32 using the @pool@ prefix.
---
-newtype PoolIdentifier = PoolIdentifier { getPoolIdentifier :: Text }
-  deriving stock (Eq, Ord, Generic)
-  deriving Show via (Quiet PoolIdentifier)
-  deriving newtype PersistField
-
--- | The hash of a stake pool's metadata.
---
--- It may be rendered as hex.
---
-newtype PoolMetaHash = PoolMetaHash { getPoolMetaHash :: Text }
-  deriving stock (Eq, Ord, Generic)
-  deriving Show via (Quiet PoolMetaHash)
-  deriving newtype PersistField
-
--- | The stake pool metadata. It is JSON format. This type represents it in
--- its raw original form. The hash of this content is the 'PoolMetadataHash'.
-newtype PoolMetadataRaw = PoolMetadataRaw { getPoolMetadata :: Text }
-  deriving stock (Eq, Show, Ord, Generic)
-  deriving newtype PersistField
-
--- | The pool url wrapper so we have some additional safety.
-newtype PoolUrl = PoolUrl { getPoolUrl :: Text }
-  deriving stock (Eq, Ord, Generic)
-  deriving Show via (Quiet PoolUrl)
-  deriving newtype PersistField
-
--- | The ticker name wrapper so we have some additional safety.
-newtype TickerName = TickerName { getTickerName :: Text }
-  deriving stock (Eq, Ord, Generic)
-  deriving Show via (Quiet TickerName)
-  deriving newtype PersistField
->>>>>>> db64dbb ([CAD-2895] Move the simple DBSyncPlugin as a separate plugin in db-sync.)
 

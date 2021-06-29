@@ -11,8 +11,8 @@ import           Cardano.Prelude
 
 import           Control.Monad.Trans.Except.Extra
 
-import           Cardano.SMASH.Types (HealthStatus, PolicyResult (..), PoolIdentifier,
-                   SmashURL (..), UniqueTicker)
+import           Cardano.SMASH.Types (HealthStatus, PolicyResult (..), PoolIdent, SmashURL (..),
+                   UniqueTicker)
 import           Data.Aeson (FromJSON, parseJSON)
 import           Data.Aeson.Types (parseEither)
 
@@ -48,10 +48,11 @@ renderHttpClientError = \case
 
 -- |Fetch the remote SMASH server policies.
 httpClientFetchPolicies :: SmashURL -> IO (Either HttpClientError PolicyResult)
-httpClientFetchPolicies smashURL = runExceptT $ do
+httpClientFetchPolicies smashURL =
+  runExceptT $ do
 
     -- https://smash.cardano-mainnet.iohk.io
-    let baseSmashURL = show $ getSmashURL smashURL
+    let baseSmashURL = show $ unSmashURL smashURL
 
     -- TODO(KS): This would be nice.
     --let delistedEndpoint = symbolVal (Proxy :: Proxy DelistedPoolsAPI)
@@ -66,20 +67,17 @@ httpClientFetchPolicies smashURL = runExceptT $ do
     reservedTickersRequest <- parseRequestEither reservedTickersEndpoint
 
     healthStatus :: HealthStatus <- httpApiCall statusRequest
-    delistedPools :: [PoolIdentifier] <- httpApiCall delistedRequest
+    delistedPools :: [PoolIdent] <- httpApiCall delistedRequest
 
     -- Some versions doesn't have exposed the tickers endpoint and would fail!
     uniqueTickers :: [UniqueTicker] <- handleLeftT (\_ -> pure []) $ httpApiCall reservedTickersRequest
 
-    let policyResult =
-            PolicyResult
-                { prSmashURL = smashURL
-                , prHealthStatus = healthStatus
-                , prDelistedPools = delistedPools
-                , prUniqueTickers = uniqueTickers
-                }
-
-    return policyResult
+    pure $ PolicyResult
+              { prSmashURL = smashURL
+              , prHealthStatus = healthStatus
+              , prDelistedPools = delistedPools
+              , prUniqueTickers = uniqueTickers
+              }
 
 -- |A simple HTTP call for remote server.
 httpApiCall :: forall a. (FromJSON a) => Request -> ExceptT HttpClientError IO a
