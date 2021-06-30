@@ -5,18 +5,22 @@ import           Cardano.Prelude
 
 import           Cardano.Config.Git.Rev (gitRev)
 
-import           Cardano.DbSync (runDbSyncNode)
+import qualified Cardano.Db as DB
 import           Cardano.DbSync.Metrics (withMetricSetters)
-import           Cardano.DbSync.Plugin.SMASH (smashDbSyncNodePlugin)
-
-import           Cardano.Sync.Config
-import           Cardano.Sync.Config.Types
+import           Cardano.DbSync.Plugin.SMASH (runSmashWebapp)
+import           Cardano.SMASH.DB (postgresqlDataLayer)
+import           Cardano.Sync.Config (ConfigFile (..), LedgerStateDir (..), SocketPath (..),
+                   SyncCommand (..), SyncNodeConfig (..), SyncNodeParams (..), configureLogging,
+                   readSyncNodeConfig)
+import           Cardano.Sync.Config.Types (MigrationDir (..))
 
 import           Cardano.Slotting.Slot (SlotNo (..))
 
 import           Data.String (String)
 import qualified Data.Text as Text
 import           Data.Version (showVersion)
+
+import           Database.Persist.Postgresql (withPostgresqlConn)
 
 import           Options.Applicative (Parser, ParserInfo)
 import qualified Options.Applicative as Opt
@@ -33,11 +37,15 @@ main = do
     CmdRun params -> do
         prometheusPort <- dncPrometheusPort <$> readSyncNodeConfig (enpConfigFile params)
 
+        connectionString <- DB.toConnectionString <$> DB.readPGPassFileEnv Nothing
+
         trce <- configureLogging params "smash"
 
-        let smashPlugin = smashDbSyncNodePlugin trce
-        withMetricSetters prometheusPort $ \metricsSetters ->
-            runDbSyncNode metricsSetters smashPlugin params
+        withMetricSetters prometheusPort $ \_metricsSetters ->
+            DB.runIohkLogging trce $ withPostgresqlConn connectionString $ \backend ->
+              lift $ do
+                let dataLayer = postgresqlDataLayer backend trce
+                void $ runSmashWebapp dataLayer backend trce
 
 -- -------------------------------------------------------------------------------------------------
 

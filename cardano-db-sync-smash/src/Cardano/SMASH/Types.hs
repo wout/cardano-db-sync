@@ -98,7 +98,7 @@ newtype Configuration = Configuration
   } deriving (Eq, Show)
 
 defaultConfiguration :: Configuration
-defaultConfiguration = Configuration 3100
+defaultConfiguration = Configuration 3101
 
 -- | A list of users with very original passwords.
 stubbedApplicationUsers :: ApplicationUsers
