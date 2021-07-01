@@ -7,6 +7,7 @@ module Cardano.Db.Schema.Types
   , PaymentAddrHash (..)
   , PoolIdent (..)
   , PoolUrl (..)
+  , RetiredPool (..)
   , TickerName (..)
   ) where
 
@@ -40,6 +41,12 @@ newtype PoolIdent
   = PoolIdent { unPoolIdent :: Text }
   deriving (Eq, Ord, Generic)
   deriving Show via (Quiet PoolIdent)
+
+-- Raw Pool Hash (not Base16 encided)
+newtype RetiredPool
+  = RetiredPool { unRetiredPool :: ByteString }
+  deriving (Eq, Ord, Generic)
+  deriving Show via (Quiet RetiredPool)
 
 -- | The pool url wrapper so we have some additional safety.
 newtype PoolUrl

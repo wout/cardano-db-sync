@@ -54,7 +54,8 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import qualified Data.ByteString.Base16 as Base16
 import qualified Data.ByteString.Lazy as LBS
-import           Data.Swagger (NamedSchema (..), ToParamSchema (..), ToSchema (..))
+import           Data.Swagger (NamedSchema (..), Schema (..), SwaggerType (..), ToParamSchema (..),
+                   ToSchema (..), declareSchemaRef, properties, required, type_)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Data.Time.Clock (UTCTime)
@@ -162,8 +163,6 @@ instance ToSchema TickerName
 instance ToParamSchema PoolIdent
 
 instance ToSchema PoolIdent
-
--- instance ToParamSchema PoolMetaHash
 
 -- A data type we use to store user credentials.
 data ApplicationUser = ApplicationUser

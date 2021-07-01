@@ -43,7 +43,7 @@ import           Servant.API.ResponseHeaders (addHeader)
 import           Servant.Swagger (toSwagger)
 
 import           Cardano.SMASH.API (API, fullAPI, smashApi)
-import           Cardano.SMASH.DB (AdminUser (..), DBFail (..), DataLayer (..))
+import           Cardano.SMASH.DB
 import           Cardano.SMASH.HttpClient (httpClientFetchPolicies, renderHttpClientError)
 
 import           Cardano.SMASH.Types (ApiResult (..), ApplicationUser (..), ApplicationUsers (..),
@@ -337,12 +337,9 @@ getPoolErrorAPI dataLayer poolId mTimeInt = convertIOToHandler $ do
     pure . ApiResult $ fetchErrors
 
 getRetiredPools :: DataLayer -> Handler (ApiResult DBFail [PoolIdent])
-getRetiredPools dataLayer = convertIOToHandler $ do
-
-    let getRetiredPools' = dlGetRetiredPools dataLayer
-    retiredPools <- getRetiredPools'
-
-    pure . ApiResult $ map (fmap fst) retiredPools
+getRetiredPools dataLayer =
+  convertIOToHandler $ do
+    ApiResult <$> dlGetRetiredPools dataLayer
 
 checkPool :: DataLayer -> PoolIdent -> Handler (ApiResult DBFail PoolIdent)
 checkPool dataLayer poolId = convertIOToHandler $ do

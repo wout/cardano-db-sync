@@ -61,7 +61,7 @@ data DataLayer = DataLayer
 
     , dlAddRetiredPool          :: PoolIdent -> Word64 -> IO (Either DBFail PoolIdent)
     , dlCheckRetiredPool        :: PoolIdent -> IO (Either DBFail (PoolIdent, Word64))
-    , dlGetRetiredPools         :: IO (Either DBFail [(PoolIdent, Word64)])
+    , dlGetRetiredPools         :: IO (Either DBFail [PoolIdent])
     , dlRemoveRetiredPool       :: PoolIdent -> IO (Either DBFail PoolIdent)
 
     , dlGetAdminUsers           :: IO (Either DBFail [AdminUser])
@@ -177,12 +177,9 @@ postgresqlDataLayer sqlBackend tracer = DataLayer
             Right retiredPool' -> pure $ Right (retiredPoolPoolId retiredPool', retiredPoolBlockNo retiredPool')
     -}
 
-    , dlGetRetiredPools = panic "Cardano.SMASH.DB.dlGetRetiredPools"
-    {-
     , dlGetRetiredPools = do
         retiredPools <- runDbIohkLogging sqlBackend tracer queryAllRetiredPools
-        pure $ Right $ map (\retiredPool' -> (retiredPoolPoolId retiredPool', retiredPoolBlockNo retiredPool')) retiredPools
-    -}
+        pure $ Right retiredPools
 
     , dlRemoveRetiredPool = \pId -> do
         isDeleted <- runDbIohkLogging sqlBackend tracer $ deleteRetiredPool pId

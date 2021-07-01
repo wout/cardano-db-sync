@@ -19,17 +19,23 @@ module Cardano.SMASH.DBSync.Db.Query
   , queryRetiredPool
   ) where
 
-import           Cardano.Prelude hiding (Meta, from, maybeToEither, on)
+{- HLINT ignore "Reduce duplication" -}
 
-import           Data.Time.Clock (UTCTime)
-
-import           Database.Esqueleto (InnerJoin (..), desc, entityVal, from, limit, on, orderBy,
-                   select, val, where_, (==.), (>=.), (^.))
-import           Database.Persist.Sql (SqlBackend, selectList)
+import           Cardano.Prelude hiding (Meta, from, groupBy, isJust, maybeToEither, on)
 
 import           Cardano.Db
 import           Cardano.SMASH.Db.Error
 import           Cardano.Sync.Types (PoolMetaHash (..))
+
+import qualified Data.ByteString.Base16 as Base16
+import qualified Data.List as List
+import qualified Data.List.Extra as List
+import qualified Data.Text.Encoding as Text
+import           Data.Time.Clock (UTCTime)
+
+import           Database.Esqueleto (InnerJoin (..), Value (..), desc, entityVal, from, groupBy,
+                   limit, max_, on, orderBy, select, val, where_, (==.), (>=.), (^.))
+import           Database.Persist.Sql (SqlBackend, selectList)
 
 -- |Return all pools.
 queryAllPools :: ReaderT SqlBackend m [pool]
@@ -83,15 +89,65 @@ queryPoolMetadata poolId poolMetadataHash' = do
   pure $ maybeToEither (DbLookupPoolMetadataHash poolId poolMetadataHash') entityVal (listToMaybe res)
 -}
 
+data PoolStateChange
+  = PSCUpdate !ByteString !Word64
+  | PSCRetire !ByteString !Word64
+  deriving (Eq, Ord)
+
+pscHash :: PoolStateChange -> ByteString
+pscHash psc =
+  case psc of
+    PSCUpdate bs _ -> bs
+    PSCRetire bs _ -> bs
+
+pscBlockNo :: PoolStateChange -> Word64
+pscBlockNo psc =
+  case psc of
+    PSCUpdate _ bn -> bn
+    PSCRetire _ bn -> bn
+
 -- |Return all retired pools.
-queryAllRetiredPools :: ReaderT SqlBackend m [a]
-queryAllRetiredPools = panic "Cardano.SMASH.DBSync.Db.Query.queryAllRetiredPool"
-{-
-queryAllRetiredPools :: MonadIO m => ReaderT SqlBackend m [RetiredPool]
+queryAllRetiredPools :: MonadIO m => ReaderT SqlBackend m [PoolIdent]
 queryAllRetiredPools = do
-  res <- selectList [] []
-  pure $ entityVal <$> res
--}
+    pus <- select . from $ \ (pu `InnerJoin` ph `InnerJoin` tx `InnerJoin` blk) -> do
+              on (blk ^. BlockId ==. tx ^.TxBlockId)
+              on (pu ^. PoolUpdateRegisteredTxId ==. tx ^. TxId)
+              on (pu ^. PoolUpdateHashId ==. ph ^. PoolHashId)
+              where_ (isJust $ blk ^. BlockBlockNo)
+              groupBy (ph ^. PoolHashId)
+              -- orderBy [desc (blk ^. BlockBlockNo)]
+              -- limit 1
+              pure (ph ^. PoolHashHashRaw, max_ (blk ^. BlockBlockNo))
+
+    prs <- select . from $ \ (pr `InnerJoin` ph `InnerJoin` tx `InnerJoin` blk) -> do
+              on (blk ^. BlockId ==. tx ^. TxBlockId)
+              on (pr ^. PoolRetireAnnouncedTxId ==. tx ^. TxId)
+              on (pr ^. PoolRetireHashId ==. ph ^. PoolHashId)
+              where_ (isJust $ blk ^. BlockBlockNo)
+              groupBy (ph ^. PoolHashId)
+              -- orderBy [desc (blk ^. BlockBlockNo)]
+              -- limit 1
+              pure (ph ^. PoolHashHashRaw, max_ (blk ^. BlockBlockNo))
+
+    liftIO $ print (length pus, length prs)
+    pure . mapMaybe (convertOuter . List.last . List.sortOn pscBlockNo)
+            . List.groupOn pscHash
+            . List.sortOn pscHash
+            $ map (convertInner PSCUpdate) pus ++ map (convertInner PSCRetire) prs
+  where
+    convertInner
+        :: (ByteString -> Word64 -> PoolStateChange) -> (Value ByteString, Value (Maybe (Maybe Word64)))
+        -> PoolStateChange
+    convertInner ctor (Value bs, Value mw64) =
+      ctor bs (fromMaybe 0 $ join mw64)
+
+    convertOuter :: PoolStateChange -> Maybe PoolIdent
+    convertOuter psc =
+      case psc of
+        PSCUpdate {} -> Nothing
+        PSCRetire bs _ -> Just $ PoolIdent (Text.decodeUtf8 $ Base16.encode bs)
+
+    -- lift :: (ByteString, Maybe Word64) -> (ByteString, Word64)
 
 -- |Query retired pools.
 queryRetiredPool :: PoolIdent -> ReaderT SqlBackend m (Either DBFail retiredPool)
