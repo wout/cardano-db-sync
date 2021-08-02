@@ -15,6 +15,7 @@ import           Cardano.Chain.Common (CompactAddress, Lovelace, decodeAddressBa
                    toCompactAddress, unsafeGetLovelace)
 import qualified Cardano.Chain.UTxO as Byron
 
+import qualified Cardano.Ledger.Alonzo.TxBody as Alonzo
 import qualified Cardano.Ledger.Core as Ledger
 import           Cardano.Ledger.Era (Crypto)
 
@@ -36,8 +37,8 @@ import qualified Shelley.Spec.Ledger.LedgerState as Shelley
 import qualified Shelley.Spec.Ledger.TxBody as Shelley
 import qualified Shelley.Spec.Ledger.UTxO as Shelley
 
+import           Cardano.Ledger.Address (BootstrapAddress (..))
 import           Shelley.Spec.Ledger.API (Addr (..), Coin (..))
-import           Shelley.Spec.Ledger.Address (BootstrapAddress (..))
 
 -- Given an address, return it's current UTxO balance.
 ledgerAddrBalance :: Text -> LedgerState (CardanoBlock StandardCrypto) -> Either Text Word64
@@ -47,6 +48,7 @@ ledgerAddrBalance addr lsc =
       LedgerStateShelley st -> getShelleyBalance addr $ getUTxO st
       LedgerStateAllegra st -> getShelleyBalance addr $ getUTxO st
       LedgerStateMary st -> getShelleyBalance addr $ getUTxO st
+      LedgerStateAlonzo st -> getAlonzoBalance addr $ getUTxO st
   where
     getUTxO :: LedgerState (ShelleyBlock era) -> Shelley.UTxO era
     getUTxO = Shelley._utxo . Shelley._utxoState . Shelley.esLState . Shelley.nesEs . shelleyLedgerState
@@ -73,6 +75,20 @@ getShelleyBalance addrText utxo = do
   where
     compactTxOutValue :: CompactAddr (Crypto era) -> Ledger.TxOut era -> Maybe Coin
     compactTxOutValue caddr (Shelley.TxOutCompact scaddr v) =
+      if caddr == scaddr
+        then Just $ coin (fromCompact v)
+        else Nothing
+
+getAlonzoBalance
+    :: forall era. Ledger.TxOut era ~ Alonzo.TxOut era -- somewhere in ledger-spec, there is probably a better constraint synonym for these
+    => Compactible (Ledger.Value era) => Val (Ledger.Value era)
+    => Text -> Shelley.UTxO era -> Either Text Word64
+getAlonzoBalance addrText utxo = do
+    caddr <- getCompactAddress addrText
+    Right . fromIntegral . sum $ unCoin <$> mapMaybe (compactTxOutValue caddr) (Map.elems $ Shelley.unUTxO utxo)
+  where
+    compactTxOutValue :: CompactAddr (Crypto era) -> Ledger.TxOut era -> Maybe Coin
+    compactTxOutValue caddr (Alonzo.TxOutCompact scaddr v _) =
       if caddr == scaddr
         then Just $ coin (fromCompact v)
         else Nothing

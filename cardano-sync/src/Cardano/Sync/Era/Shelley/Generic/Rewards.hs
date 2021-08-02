@@ -9,7 +9,10 @@ module Cardano.Sync.Era.Shelley.Generic.Rewards
 
 import           Cardano.Sync.Era.Shelley.Generic.StakeCred
 
+import qualified Cardano.Ledger.BaseTypes as Shelley
+import qualified Cardano.Ledger.Credential as Shelley
 import           Cardano.Ledger.Era (Crypto)
+import qualified Cardano.Ledger.Keys as Shelley
 
 import           Cardano.Slotting.Slot (EpochNo (..))
 
@@ -28,9 +31,6 @@ import           Ouroboros.Consensus.Ledger.Extended (ExtLedgerState (..))
 import           Ouroboros.Consensus.Shelley.Ledger.Block (ShelleyBlock)
 import qualified Ouroboros.Consensus.Shelley.Ledger.Ledger as Consensus
 
-import qualified Shelley.Spec.Ledger.BaseTypes as Shelley
-import qualified Shelley.Spec.Ledger.Credential as Shelley
-import qualified Shelley.Spec.Ledger.Keys as Shelley
 import qualified Shelley.Spec.Ledger.LedgerState as Shelley
 import qualified Shelley.Spec.Ledger.Rewards as Shelley
 
@@ -50,6 +50,7 @@ epochRewards nw epoch lstate =
     LedgerStateShelley sls -> genericRewards nw epoch sls
     LedgerStateAllegra als -> genericRewards nw epoch als
     LedgerStateMary mls -> genericRewards nw epoch mls
+    LedgerStateAlonzo als -> genericRewards nw epoch als
 
 rewardsPoolHashKeys :: Rewards -> Set PoolKeyHash
 rewardsPoolHashKeys rwds =

@@ -82,6 +82,7 @@ epochPluginInsertBlock backend trce _dbSyncEnv blockDetails =
         BlockShelley _sblk -> epochUpdate details
         BlockAllegra _ablk -> epochUpdate details
         BlockMary _mblk -> epochUpdate details
+        BlockAlonzo _ablk -> epochUpdate details
 
     -- What we do here is completely independent of Shelley/Allegra/Mary eras.
     epochUpdate :: SlotDetails -> ReaderT SqlBackend (LoggingT IO) (Either SyncNodeError ())

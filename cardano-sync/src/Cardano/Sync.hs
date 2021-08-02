@@ -151,7 +151,7 @@ runSyncNode dataLayer metricsSetters trce plugin enp insertValidateGenesisDist r
         -- Must run plugin startup after the genesis distribution has been inserted/validate.
       liftIO $ runDbStartup trce plugin
       case genCfg of
-          GenesisCardano _ bCfg _sCfg -> do
+          GenesisCardano _ bCfg _sCfg _aCfg -> do
             syncEnv <- ExceptT $ mkSyncEnvFromConfig dataLayer (enpLedgerStateDir enp) genCfg
             liftIO $ runSyncNodeNodeClient metricsSetters syncEnv iomgr trce plugin
                         runDBThreadFunction (cardanoCodecConfig bCfg) (enpSocketPath enp)
@@ -163,6 +163,7 @@ runSyncNode dataLayer metricsSetters trce plugin enp insertValidateGenesisDist r
         ShelleyCodecConfig
         ShelleyCodecConfig -- Allegra
         ShelleyCodecConfig -- Mary
+        ShelleyCodecConfig -- Alonzo
 
 -- -------------------------------------------------------------------------------------------------
 

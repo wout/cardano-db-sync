@@ -21,6 +21,7 @@ module Cardano.Sync.LedgerState
   , loadLedgerStateFromFile
   , findStateFromPoint
   , findLedgerStateFile
+  , getAlonzoPParams
   , loadLedgerAtPoint
   , hashToAnnotation
   , getHeaderHash
@@ -36,9 +37,9 @@ import           Cardano.Db (SyncState (..))
 import qualified Cardano.Db as DB
 
 import           Cardano.Ledger.Coin (Coin)
+import           Cardano.Ledger.Core (PParams)
 import           Cardano.Ledger.Era
 import           Cardano.Ledger.Shelley.Constraints (UsesValue)
-import qualified Cardano.Ledger.Val as Val
 
 import           Cardano.Sync.Config.Types
 import qualified Cardano.Sync.Era.Cardano.Util as Cardano
@@ -72,7 +73,8 @@ import           Data.Time.Clock (UTCTime)
 import           Ouroboros.Consensus.Block (CodecConfig, WithOrigin (..), blockHash, blockIsEBB,
                    blockPrevHash, withOrigin)
 import           Ouroboros.Consensus.Block.Abstract (ConvertRawHash (..))
-import           Ouroboros.Consensus.Cardano.Block (LedgerState (..), StandardCrypto)
+import           Ouroboros.Consensus.Cardano.Block (LedgerState (..), StandardAlonzo,
+                   StandardCrypto)
 import           Ouroboros.Consensus.Cardano.CanHardFork ()
 import           Ouroboros.Consensus.Config (TopLevelConfig (..), configCodec, configLedger)
 import qualified Ouroboros.Consensus.HardFork.Combinator as Consensus
@@ -91,12 +93,11 @@ import           Ouroboros.Consensus.Storage.Serialisation (DecodeDisk (..), Enc
 import           Ouroboros.Network.Block (HeaderHash, Point (..))
 import qualified Ouroboros.Network.Point as Point
 
-import qualified Shelley.Spec.Ledger.BaseTypes as Shelley
-import           Shelley.Spec.Ledger.Keys (KeyHash (..), KeyRole (..))
-import           Shelley.Spec.Ledger.LedgerState (AccountState, EpochState, UTxOState)
+import qualified Cardano.Ledger.BaseTypes as Shelley
+import           Cardano.Ledger.Keys (KeyHash (..), KeyRole (..))
 import qualified Shelley.Spec.Ledger.LedgerState as Shelley
 import qualified Shelley.Spec.Ledger.Rewards as Shelley
-import qualified Shelley.Spec.Ledger.UTxO as Shelley
+import qualified Shelley.Spec.Ledger.STS.Chain as Shelley
 
 import           System.Directory (listDirectory, removeFile)
 import           System.FilePath (dropExtension, takeExtension, (</>))
@@ -575,6 +576,7 @@ getPoolParams st =
       LedgerStateShelley sts -> getPoolParamsShelley sts
       LedgerStateAllegra sts -> getPoolParamsShelley sts
       LedgerStateMary sts -> getPoolParamsShelley sts
+      LedgerStateAlonzo ats -> getPoolParamsShelley ats
 
 getPoolParamsShelley
     :: forall era. (Crypto era ~ StandardCrypto)
@@ -586,21 +588,26 @@ getPoolParamsShelley lState =
 
 -- We only compute 'AdaPots' for later eras. This is a time consuming
 -- function and we only want to run it on epoch boundaries.
-getAdaPots :: CardanoLedgerState -> Maybe Generic.AdaPots
+getAdaPots :: CardanoLedgerState -> Maybe Shelley.AdaPots
 getAdaPots st =
     case ledgerState $ clsState st of
       LedgerStateByron _ -> Nothing
       LedgerStateShelley sts -> Just $ totalAdaPots sts
       LedgerStateAllegra sta -> Just $ totalAdaPots sta
       LedgerStateMary stm -> Just $ totalAdaPots stm
+      LedgerStateAlonzo atm -> Just $ totalAdaPots atm
 
 ledgerEpochNo :: LedgerEnv -> CardanoLedgerState -> EpochNo
 ledgerEpochNo env cls =
     case ledgerTipSlot (ledgerState (clsState cls)) of
       Origin -> 0 -- An empty chain is in epoch 0
-      NotOrigin slot -> runIdentity $ epochInfoEpoch epochInfo slot
+      NotOrigin slot ->
+        case runExcept $ epochInfoEpoch epochInfo slot of
+          Left err -> panic $ "ledgerEpochNo: " <> textShow err
+          Right en -> en
+
   where
-    epochInfo :: EpochInfo Identity
+    epochInfo :: EpochInfo (Except Consensus.PastHorizonException)
     epochInfo = epochInfoLedger (configLedger $ topLevelConfig env) (hardForkLedgerStatePerEra . ledgerState $ clsState cls)
 
 -- Like 'Consensus.tickThenReapply' but also checks that the previous hash from the block matches
@@ -625,34 +632,15 @@ tickThenReapplyCheckHash cfg block lsb =
 totalAdaPots
     :: forall era. UsesValue era
     => LedgerState (ShelleyBlock era)
-    -> Generic.AdaPots
-totalAdaPots lState =
-    Generic.AdaPots
-      { Generic.apTreasury = Shelley._treasury accountState
-      , Generic.apReserves = Shelley._reserves accountState
-      , Generic.apRewards = rewards
-      , Generic.apUtxo = utxo
-      , Generic.apDeposits = Shelley._deposited uState
-      , Generic.apFees = Shelley._fees uState
-      }
-  where
-    eState :: EpochState era
-    eState = Shelley.nesEs $ Consensus.shelleyLedgerState lState
-
-    accountState :: AccountState
-    accountState = Shelley.esAccountState eState
-
-    slState :: Shelley.LedgerState era
-    slState = Shelley.esLState eState
-
-    uState :: UTxOState era
-    uState = Shelley._utxoState slState
-
-    rewards :: Coin
-    rewards = fold (Map.elems (Shelley._rewards . Shelley._dstate $ Shelley._delegationState slState))
-
-    utxo :: Coin
-    utxo = Val.coin $ Shelley.balance (Shelley._utxo uState)
+    -> Shelley.AdaPots
+totalAdaPots = Shelley.totalAdaPotsES . Shelley.nesEs . Consensus.shelleyLedgerState
 
 getHeaderHash :: HeaderHash CardanoBlock -> ByteString
 getHeaderHash bh = BSS.fromShort (Consensus.getOneEraHash bh)
+
+-- | This will fail if the state is not a 'LedgerStateAlonzo'
+getAlonzoPParams :: CardanoLedgerState -> PParams StandardAlonzo
+getAlonzoPParams cls =
+  case ledgerState $ clsState cls of
+    LedgerStateAlonzo als -> Shelley.esPp $ Shelley.nesEs $ Consensus.shelleyLedgerState als
+    _ -> panic "Expected LedgerStateAlonzo after an Alonzo Block"

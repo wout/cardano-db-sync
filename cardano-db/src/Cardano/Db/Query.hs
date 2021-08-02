@@ -5,6 +5,7 @@
 module Cardano.Db.Query
   ( LookupFail (..)
   , queryAddressBalanceAtSlot
+  , queryGenesis
   , queryBlock
   , queryBlockCount
   , queryBlockHeight
@@ -61,6 +62,7 @@ module Cardano.Db.Query
   , unTxOutId
   , unValue2
   , unValue3
+  , unValue4
   , unValueSumAda
   ) where
 
@@ -117,6 +119,15 @@ queryAddressBalanceAtSlot addr slotNo = do
                   where_ (txout ^. TxOutAddress ==. val addr)
                   pure $ sum_ (txout ^. TxOutValue)
         pure $ unValueSumAda (listToMaybe res)
+
+queryGenesis :: MonadIO m => ReaderT SqlBackend m (Either LookupFail BlockId)
+queryGenesis = do
+  res <- select . from $ \ blk -> do
+            where_ (isNothing (blk ^. BlockEpochNo))
+            pure $ blk ^. BlockId
+  case res of
+    [blk] -> pure $ Right (unValue blk)
+    _ -> pure $ Left DBMultipleGenesis
 
 -- | Get the 'Block' associated with the given hash.
 queryBlock :: MonadIO m => ByteString -> ReaderT SqlBackend m (Either LookupFail Block)
@@ -397,6 +408,7 @@ querySchemaVersion :: MonadIO m => ReaderT SqlBackend m (Maybe SchemaVersion)
 querySchemaVersion = do
   res <- select . from $ \ sch -> do
             orderBy [desc (sch ^. SchemaVersionStageOne)]
+            limit 1
             pure (sch ^. SchemaVersionStageOne, sch ^. SchemaVersionStageTwo, sch ^. SchemaVersionStageThree)
   pure $ uncurry3 SchemaVersion . unValue3 <$> listToMaybe res
 
@@ -504,16 +516,15 @@ queryTxOutCount = do
   pure $ maybe 0 unValue (listToMaybe res)
 
 -- | Give a (tx hash, index) pair, return the TxOut value.
--- It can return 0 if the output does not exist.
-queryTxOutValue :: MonadIO m => (ByteString, Word16) -> ReaderT SqlBackend m (Either LookupFail DbLovelace)
+queryTxOutValue :: MonadIO m => (ByteString, Word16) -> ReaderT SqlBackend m (Either LookupFail (TxId, DbLovelace))
 queryTxOutValue (hash, index) = do
   res <- select . from $ \ (tx `InnerJoin` txOut) -> do
             on (tx ^. TxId ==. txOut ^. TxOutTxId)
             where_ (txOut ^. TxOutIndex ==. val index
                     &&. tx ^. TxHash ==. val hash
                     )
-            pure $ txOut ^. TxOutValue
-  pure $ maybeToEither (DbLookupTxHash hash) unValue (listToMaybe res)
+            pure (txOut ^. TxOutTxId, txOut ^. TxOutValue)
+  pure $ maybeToEither (DbLookupTxHash hash) unValue2 (listToMaybe res)
 
 -- | Get the UTxO set after the specified 'BlockId' has been applied to the chain.
 -- Not exported because 'BlockId' to 'BlockHash' relationship may not be the same
@@ -640,3 +651,6 @@ unValue2 (a, b) = (unValue a, unValue b)
 
 unValue3 :: (Value a, Value b, Value c) -> (a, b, c)
 unValue3 (a, b, c) = (unValue a, unValue b, unValue c)
+
+unValue4 :: (Value a, Value b, Value c, Value d) -> (a, b, c, d)
+unValue4 (a, b, c, d) = (unValue a, unValue b, unValue c, unValue d)

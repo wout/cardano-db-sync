@@ -34,7 +34,7 @@ import           Ouroboros.Network.Block (Point (..))
 import           Ouroboros.Network.Magic (NetworkMagic (..))
 import qualified Ouroboros.Network.Point as Point
 
-import qualified Shelley.Spec.Ledger.BaseTypes as Shelley
+import qualified Cardano.Ledger.BaseTypes as Shelley
 import qualified Shelley.Spec.Ledger.Genesis as Shelley
 
 data SyncEnv = SyncEnv
@@ -67,7 +67,7 @@ mkSyncEnv dataLayer protocolInfo network networkMagic systemStart dir = do
 mkSyncEnvFromConfig :: SyncDataLayer -> LedgerStateDir -> GenesisConfig -> IO (Either SyncNodeError SyncEnv)
 mkSyncEnvFromConfig dataLayer dir genCfg =
     case genCfg of
-      GenesisCardano _ bCfg sCfg
+      GenesisCardano _ bCfg sCfg _aCfg
         | unProtocolMagicId (Byron.configProtocolMagicId bCfg) /= Shelley.sgNetworkMagic (scConfig sCfg) ->
             pure . Left . NECardanoConfig $
               mconcat

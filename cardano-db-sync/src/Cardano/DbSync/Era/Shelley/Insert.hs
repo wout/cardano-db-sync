@@ -24,6 +24,7 @@ import           Cardano.Api.Shelley (TxMetadataValue (..), makeTransactionMetad
 
 import           Cardano.BM.Trace (Trace, logDebug, logInfo, logWarning)
 
+import qualified Cardano.Ledger.BaseTypes as Ledger
 
 import qualified Cardano.Crypto.Hash as Crypto
 
@@ -67,12 +68,13 @@ import           Database.Persist.Sql (SqlBackend)
 
 import           Ouroboros.Consensus.Cardano.Block (StandardCrypto)
 
-import qualified Shelley.Spec.Ledger.Address as Shelley
-import           Shelley.Spec.Ledger.BaseTypes (strictMaybeToMaybe)
-import qualified Shelley.Spec.Ledger.BaseTypes as Shelley
-import qualified Shelley.Spec.Ledger.Credential as Shelley
-import qualified Shelley.Spec.Ledger.Keys as Shelley
+import qualified Cardano.Ledger.Address as Shelley
+import           Cardano.Ledger.BaseTypes (strictMaybeToMaybe)
+import qualified Cardano.Ledger.BaseTypes as Shelley
+import qualified Cardano.Ledger.Credential as Shelley
+import qualified Cardano.Ledger.Keys as Shelley
 import qualified Shelley.Spec.Ledger.PParams as Shelley
+import qualified Shelley.Spec.Ledger.STS.Chain as Shelley
 import qualified Shelley.Spec.Ledger.TxBody as Shelley
 
 insertShelleyBlock
@@ -322,7 +324,7 @@ insertPoolRegister tracer lStateSnap network (EpochNo epoch) blkId txId idx para
                         , DB.poolUpdateRewardAddr = Generic.serialiseRewardAcntWithNetwork network (Shelley._poolRAcnt params)
                         , DB.poolUpdateActiveEpochNo = epoch + epochActivationDelay
                         , DB.poolUpdateMetaId = mdId
-                        , DB.poolUpdateMargin = realToFrac $ Shelley.intervalValue (Shelley._poolMargin params)
+                        , DB.poolUpdateMargin = realToFrac $ Ledger.unboundRational (Shelley._poolMargin params)
                         , DB.poolUpdateFixedCost = Generic.coinToDbLovelace (Shelley._poolCost params)
                         , DB.poolUpdateRegisteredTxId = txId
                         }
@@ -748,18 +750,18 @@ insertPots
     :: (MonadBaseControl IO m, MonadIO m)
     => DB.BlockId
     -> SlotNo -> EpochNo
-    -> Generic.AdaPots
+    -> Shelley.AdaPots
     -> ExceptT e (ReaderT SqlBackend m) ()
 insertPots blockId slotNo epochNo pots =
     void . lift $ DB.insertAdaPots $
       DB.AdaPots
         { DB.adaPotsSlotNo = unSlotNo slotNo
         , DB.adaPotsEpochNo = unEpochNo epochNo
-        , DB.adaPotsTreasury = Generic.coinToDbLovelace $ Generic.apTreasury pots
-        , DB.adaPotsReserves = Generic.coinToDbLovelace $ Generic.apReserves pots
-        , DB.adaPotsRewards = Generic.coinToDbLovelace $ Generic.apRewards pots
-        , DB.adaPotsUtxo = Generic.coinToDbLovelace $ Generic.apUtxo pots
-        , DB.adaPotsDeposits = Generic.coinToDbLovelace $ Generic.apDeposits pots
-        , DB.adaPotsFees = Generic.coinToDbLovelace $ Generic.apFees pots
+        , DB.adaPotsTreasury = Generic.coinToDbLovelace $ Shelley.treasuryAdaPot pots
+        , DB.adaPotsReserves = Generic.coinToDbLovelace $ Shelley.reservesAdaPot pots
+        , DB.adaPotsRewards = Generic.coinToDbLovelace $ Shelley.rewardsAdaPot pots
+        , DB.adaPotsUtxo = Generic.coinToDbLovelace $ Shelley.utxoAdaPot pots
+        , DB.adaPotsDeposits = Generic.coinToDbLovelace $ Shelley.depositsAdaPot pots
+        , DB.adaPotsFees = Generic.coinToDbLovelace $ Shelley.feesAdaPot pots
         , DB.adaPotsBlockId = blockId
         }

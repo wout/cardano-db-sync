@@ -41,7 +41,7 @@ import           Database.Persist.Sql (SqlBackend)
 import           Ouroboros.Consensus.Cardano.Block (StandardCrypto, StandardShelley)
 import           Ouroboros.Consensus.Shelley.Node (ShelleyGenesis (..))
 
-import qualified Shelley.Spec.Ledger.Address as Shelley
+import qualified Cardano.Ledger.Address as Shelley
 import qualified Shelley.Spec.Ledger.Genesis as Shelley
 import           Shelley.Spec.Ledger.Scripts ()
 import qualified Shelley.Spec.Ledger.TxBody as Shelley
