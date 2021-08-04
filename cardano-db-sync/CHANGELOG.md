@@ -1,5 +1,9 @@
 # Revision history for cardano-db-sync
 
+## 11.0.0
+* Alonzo support.
+* Database changes as per cardano-db changelog.
+
 ## 10.0.2
 * Fix docker issue (#712).
 

@@ -1,5 +1,20 @@
 # Revision history for cardano-db
 
+## 11.0.0
+* Many changed to support Alonzo release.
+* Add Alonzo (smart contracts) related Redeemer and Script tables.
+* Add an `epochNo` columm to StakeRegistration/Deregistration tables.
+* Add instantaneous rewards to the `Reward` table. This adds two new reward sources (`treasury` and
+  `reserves` to the existing `owner` and `member` types) and makes the `poolId` NULLable (treasury
+  and reserves rewards are not associated with a pool).
+* For the `EpochSyncTime` table change the `seconds` column from `double` to `Word64` and make it
+  non-NULLable.
+* Fix the uniqueness constraint on the `CollateralTxIn` and `PoolMetadataRef` tables.
+* For the `Reward` table, drop the `epochNo` column and relace it with `earnedEpoch` and
+  `spendableEpoch`
+* Extend `ProtocolParams` and `EpochParams` tables for Alonzo.
+* Add `opCertCounter` column to `Block` table.
+
 ## 10.0.2
 * Fix docker issue (#712).
 
