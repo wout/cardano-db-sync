@@ -14,12 +14,20 @@ services:
       - postgres_db
     volumes:
       - postgres:/var/lib/postgresql/data
+      - ./docker/postgres/pg_stat_statements.sh:/docker-entrypoint-initdb.d/pg_stat_statements.sh
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200
     restart: on-failure
     logging:
       driver: "json-file"
       options:
         max-size: "200k"
         max-file: "10"
+    # label containers as either cardano|monitoring.
+    #   - cardano is the main containers for running a db-sync node.
+    #   - monitoring is any monitoring, exporting or visualisation containers.
+    labels:
+      io.iohk.group: "cardano"
+      io.iohk.instance-type: "postgres"
 
   cardano-node:
     image: inputoutput/cardano-node:1.29.0
@@ -34,6 +42,9 @@ services:
       options:
         max-size: "200k"
         max-file: "10"
+    labels:
+      io.iohk.group: "cardano"
+      io.iohk.instance-type: "cardano-node"
 
   cardano-db-sync:
     image: inputoutput/cardano-db-sync:11.0.0
@@ -53,12 +64,119 @@ services:
     volumes:
       - db-sync-data:/var/lib/cdbsync
       - node-ipc:/node-ipc
+    ports:
+      - 8080:8080 # TODO The prometheus port should be env variable driven
+
     restart: on-failure
     logging:
       driver: "json-file"
       options:
         max-size: "200k"
         max-file: "10"
+    labels:
+      io.iohk.group: "cardano"
+      io.iohk.instance-type: "cardano-db-sync"
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:v2.29.1
+    volumes:
+      - ./docker/prometheus/:/etc/prometheus/
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    depends_on:
+      - cadvisor
+      - postgres-exporter
+    # Label everything for monitoring with this label
+    labels:
+      io.iohk.group: "monitoring"
+      io.iohk.instance-type: "prometheus"
+
+  # Export metrics for host that is running docker
+  node-exporter:
+    image: prom/node-exporter:v1.2.2
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    expose:
+      - 9100
+    labels:
+      io.iohk.group: "monitoring"
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.40.0
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      # OSX Access to docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    command:
+      - '-port=8098'
+    ports:
+      - 8098:8098
+    restart: unless-stopped
+    labels:
+      io.iohk.group: "monitoring"
+      io.iohk.instance-type: "cadvisor"
+
+  # https://github.com/prometheus-community/postgres_exporter
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter
+    volumes:
+      - ./docker/postgres-exporter/:/etc/postgres-exporter/
+    environment:
+      - DATA_SOURCE_USER_FILE=/run/secrets/postgres_user
+      - DATA_SOURCE_PASS_FILE=/run/secrets/postgres_password
+      - DATA_SOURCE_URI=postgres?sslmode=disable
+      - PG_EXPORTER_AUTO_DISCOVER_DATABASES=true
+      # - PG_EXPORTER_EXTEND_QUERY_PATH=/etc/postgres-exporter/queries.yaml
+    secrets:
+      - postgres_password
+      - postgres_user
+      - postgres_db
+    depends_on:
+      - postgres
+    ports:
+      - 9187:9187
+    restart: unless-stopped
+    labels:
+      io.iohk.group: "monitoring"
+      io.iohk.instance-type: "postgres-exporter"
+
+  # TODO grafana user setup so we dont' need to readd it when logging in.
+  grafana:
+    image: grafana/grafana:8.1.1
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    restart: unless-stopped
+    labels:
+      io.iohk.group: "monitoring"
+      io.iohk.instance-type: "grafana"
 
 secrets:
   postgres_db:
@@ -73,3 +191,7 @@ volumes:
   postgres:
   node-db:
   node-ipc:
+  # TODO Monitoring rename these to _data suffix
+  prometheus_data:
+  grafana_data:
+  postgres_data:
