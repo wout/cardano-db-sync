@@ -52,6 +52,13 @@ in {
 
   scripts = import ./scripts.nix { inherit pkgs; };
 
+  extendedScripts = import ./scripts.nix {
+    inherit pkgs;
+    customConfigs = [
+      { services.cardano-db-sync.extended = true; }
+    ];
+  };
+
   dockerImage = let
     defaultConfig = rec {
       services.cardano-db-sync = {
