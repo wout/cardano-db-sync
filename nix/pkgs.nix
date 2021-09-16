@@ -48,11 +48,15 @@ in {
     enableSystemd = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
   };
 
-  scripts = import ./scripts.nix { inherit pkgs; };
+  scripts = import ./scripts.nix {
+    inherit pkgs;
+    customConfigs = [ customConfig ];
+  };
 
   extendedScripts = import ./scripts.nix {
     inherit pkgs;
-    customConfigs = [{ services.cardano-db-sync.extended = true; }];
+    customConfigs =
+      [ customConfig { services.cardano-db-sync.extended = true; } ];
   };
 
   dockerImage = let
