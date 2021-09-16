@@ -174,7 +174,7 @@ in {
         export PATH="$PATH:${lib.makeBinPath (with pkgs; [
           coreutils
           self.cardanoDbSyncHaskellPackages.cardano-db-tool.components.exes.cardano-db-tool
-          config.services.postgresql.package
+          postgresql_11
           bash
           gnutar
           gzip
@@ -226,6 +226,14 @@ in {
     systemd.services.cardano-db-sync = {
       wantedBy = [ "multi-user.target" ];
       requires = [ "postgresql.service" ];
+      path = with pkgs; [
+        self.cardanoDbSyncHaskellPackages.cardano-db-tool.components.exes.cardano-db-tool
+        config.services.postgresql.package
+        netcat
+        bash
+        gnutar
+        gzip
+      ];
       preStart = ''
         for x in {1..10}; do
           ${pkgs.netcat}/bin/nc -z localhost ${toString cfg.postgres.port} && break
