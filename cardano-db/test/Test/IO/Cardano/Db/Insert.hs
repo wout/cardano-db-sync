@@ -4,15 +4,18 @@ module Test.IO.Cardano.Db.Insert
   ( tests
   ) where
 
+import           Cardano.Db
+
 import           Control.Monad (void)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Monad.Trans.Reader (ReaderT)
 
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import           Data.Text (Text)
 import           Data.Time.Clock
 
-import           Database.Persist.Sql (Entity, delete, selectList)
-
-import           Cardano.Db
+import           Database.Persist.Sql (Entity, SqlBackend, delete, selectList)
 
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.HUnit (testCase)
@@ -26,7 +29,7 @@ tests =
     [ testCase "Insert zeroth block" insertZeroTest
     , testCase "Insert first block" insertFirstTest
     , testCase "Insert twice" insertTwice
-    , testCase "Insert foreign key" insertForeignKey
+    , testCase "Insert with missing foreign key" insertForeignKeyMissing
     ]
 
 insertZeroTest :: IO ()
@@ -60,16 +63,16 @@ insertTwice =
     slid <- insertSlotLeader testSlotLeader
     bid <- insertBlockChecked (blockZero slid)
     let adaPots = adaPotsZero bid
-    _ <- insertAdaPots adaPots
+    void $ insertAdaPots adaPots
     Just pots0 <- queryAdaPots bid
     -- Insert with same Unique key, different first field
-    _ <- insertAdaPots (adaPots {adaPotsSlotNo = 1 + adaPotsSlotNo adaPots})
+    void $ insertAdaPots (adaPots {adaPotsSlotNo = 1 + adaPotsSlotNo adaPots})
     Just pots0' <- queryAdaPots bid
     assertBool (show (adaPotsSlotNo pots0) ++ " /= " ++ show (adaPotsSlotNo pots0'))
       (adaPotsSlotNo pots0 == adaPotsSlotNo pots0')
 
-insertForeignKey :: IO ()
-insertForeignKey = do
+insertForeignKeyMissing :: IO ()
+insertForeignKeyMissing = do
   time <- getCurrentTime
   runDbNoLogging $ do
     slid <- insertSlotLeader testSlotLeader
@@ -77,13 +80,45 @@ insertForeignKey = do
     txid <- insertTx (txZero bid)
     phid <- insertPoolHash poolHash0
     pmrid <- insertPoolMetadataRef $ poolMetadataRef txid phid
-    void $ insertAbortForeignKey print $ void $ insertPoolOfflineFetchError $
-      poolOfflineFetchError phid pmrid time
+    let fe = poolOfflineFetchError phid pmrid time
+    void . insertAbortForeignKey nullPrint . void $ insertPoolOfflineFetchError fe
+
+    count0 <- poolOfflineFetchErrorCount
+    assertBool (show count0 ++ "/= 1") (count0 == 1)
+
+    -- Delete the foreign key.
     delete pmrid
-    void $ insertAbortForeignKey print $ void $ insertPoolOfflineFetchError $
-      poolOfflineFetchError phid pmrid time
-    ls :: [Entity PoolOfflineFetchError] <- selectList [] []
-    assertBool (show (length ls) ++ "/= 0") (length ls == 0)
+    -- Following insert should fail internally, but the exception should be caught
+    -- and swallowed.
+    void . insertAbortForeignKey nullPrint . void $ insertPoolOfflineFetchError fe
+
+    count1 <- poolOfflineFetchErrorCount
+    assertBool (show count1 ++ "/= 0") (count1 == 0)
+
+  {-
+  -- Uncommenting this block of code will result in a passing test, but uncommenting
+  -- this is not a valid solution.
+  runDbNoLogging $ do
+    slid <- insertSlotLeader testSlotLeader
+    bid <- insertBlockChecked (blockZero slid)
+    txid <- insertTx (txZero bid)
+    phid <- insertPoolHash poolHash0
+  -}
+    liftIO $ putStrLn "before"
+    pmrid2 <- insertPoolMetadataRef $ poolMetadataRef txid phid
+    liftIO $ putStrLn "after"
+    void . insertAbortForeignKey nullPrint . void $ insertPoolOfflineFetchError (poolOfflineFetchError phid pmrid2 time)
+
+    count2 <- poolOfflineFetchErrorCount
+    assertBool (show count2 ++ "/= 1") (count2 == 1)
+  where
+    nullPrint :: Text -> IO ()
+    nullPrint = const $ pure ()
+
+    poolOfflineFetchErrorCount :: MonadIO m => ReaderT SqlBackend m Int
+    poolOfflineFetchErrorCount = do
+        ls :: [Entity PoolOfflineFetchError] <- selectList [] []
+        pure $ length ls
 
 blockZero :: SlotLeaderId -> Block
 blockZero slid =

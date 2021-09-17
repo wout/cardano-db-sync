@@ -56,7 +56,10 @@ module Cardano.Db.Insert
   ) where
 
 
-import           Control.Exception.Lifted (Exception, handle, throw, throwIO)
+import           Cardano.Db.Schema
+import           Cardano.Db.Text
+
+import           Control.Exception.Lifted (Exception, handle, throwIO)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Trans.Control (MonadBaseControl)
 import           Control.Monad.Trans.Reader (ReaderT)
@@ -70,16 +73,14 @@ import qualified Data.Text as Text
 import           Database.Persist.Class (AtLeastOneUniqueKey, PersistEntityBackend, insert,
                    insertBy, replaceUnique)
 import           Database.Persist.EntityDef.Internal (entityDB, entityUniques)
-import           Database.Persist.Sql (OnlyOneUniqueKey, PersistRecordBackend, SqlBackend,
-                   UniqueDef, entityDef, rawExecute, rawSql, toPersistFields, toPersistValue,
-                   uniqueDBName, uniqueFields)
+import           Database.Persist.Sql (IsolationLevel (Serializable), OnlyOneUniqueKey,
+                   PersistRecordBackend, SqlBackend, UniqueDef, entityDef, rawExecute, rawSql,
+                   toPersistFields, toPersistValue, transactionSaveWithIsolation, uniqueDBName,
+                   uniqueFields)
 import qualified Database.Persist.Sql.Util as Util
 import           Database.Persist.Types (ConstraintNameDB (..), EntityNameDB (..), FieldNameDB (..),
                    PersistValue, entityKey)
 import           Database.PostgreSQL.Simple (SqlError, sqlErrorMsg)
-
-import           Cardano.Db.Schema
-import           Cardano.Db.Text
 
 
 -- The original naive way of inserting rows into Postgres was:
@@ -240,8 +241,14 @@ insertAbortForeignKey logWarn insertDB = do
       -- Comparing strings here. Hope the string in the `postgresql-simple`
       -- package never changes.
       if "violates foreign key constraint" `BS.isInfixOf` sqlErrorMsg e
-        then liftIO $ logWarn $ Text.pack vtype <> ": " <> textShow e
-        else throw $ DbInsertException vtype e
+        then do
+           liftIO . logWarn $ Text.pack vtype <> ": " <> textShow e
+           transactionCommit
+        else throwIO $ DbInsertException vtype e
+
+    transactionCommit :: ReaderT SqlBackend m ()
+    transactionCommit = transactionSaveWithIsolation Serializable
+
 
 insertManyUncheckedUnique
     :: forall m record.
@@ -276,7 +283,7 @@ insertManyUncheckedUnique vtype records = do
 
     exceptHandler :: SqlError -> ReaderT SqlBackend m a
     exceptHandler e =
-      liftIO $ throwIO (DbInsertException vtype e)
+      throwIO $ DbInsertException vtype e
 
 -- Insert, getting PostgreSQL to check the uniqueness constaint. If it is violated,
 -- simply returns the Key, without changing anything.
@@ -320,7 +327,7 @@ insertCheckUnique vtype record = do
 
     exceptHandler :: SqlError -> ReaderT SqlBackend m a
     exceptHandler e =
-      liftIO $ throwIO (DbInsertException vtype e)
+      throwIO $ DbInsertException vtype e
 
     -- The first field of the Unique key
     dummyUpdateField :: Text
@@ -346,7 +353,7 @@ insertReplace vtype record =
   where
     exceptHandler :: SqlError -> ReaderT SqlBackend m a
     exceptHandler e =
-      liftIO $ throwIO (DbInsertException vtype e)
+      throwIO $ DbInsertException vtype e
 
 -- Insert without checking uniqueness constraints. This should be safe for most tables
 -- even tables with uniqueness constraints, especially block, tx and many others, where
@@ -361,9 +368,9 @@ insertUnchecked
 insertUnchecked vtype =
     handle exceptHandler . insert
   where
-    exceptHandler :: MonadIO m => SqlError -> ReaderT SqlBackend m a
+    exceptHandler :: MonadBaseControl IO m => SqlError -> ReaderT SqlBackend m a
     exceptHandler e =
-      liftIO $ throwIO (DbInsertException vtype e)
+      throwIO $ DbInsertException vtype e
 
 
 -- This is cargo culted from Persistent because it is not exported.
