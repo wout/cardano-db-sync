@@ -1,5 +1,8 @@
 # Revision history for cardano-sync
 
+## 11.0.3
+* Update dependencies.
+
 ## 11.0.2
 * Fix schema documentation typo (#799).
 * Fix race condition on insertion of pool offline data or error response (#806, #823).

@@ -1,5 +1,8 @@
 # Revision history for cardano-db
 
+## 11.0.3
+* Update dependencies.
+
 ## 11.0.2
 * Fix schema documentation typo (#799).
 
