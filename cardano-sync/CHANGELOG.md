@@ -1,5 +1,15 @@
 # Revision history for cardano-sync
 
+## 12.0.0
+* Note that this release requires the database to be dropped and recreated.
+* Update `rewardtype` enum (used in `reward` table) to include a pool deposit refund type.
+* Include `json` and (raw) `bytes` fields to `script` table.
+* Add `cost_model`, `datum` and `redeemer` tables.
+* Update `cost_model*` fields of `param_proposal` and `epoch_param` tables to reference `cost_model`
+  table.
+* Unify SQL types of epoch_stake.epoch_no and epoch.no (#811).
+* Fix missing and inconsistent rewards issues (#796, #826).
+
 ## 11.0.4
 * Fix race condition on insertion of pool offline data or error response (#806, #823, #858).
 
