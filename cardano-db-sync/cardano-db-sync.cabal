@@ -169,3 +169,25 @@ executable cardano-db-sync
                       , cardano-slotting
                       , optparse-applicative
                       , text
+
+test-suite cardano-db-sync-test
+  default-language:     Haskell2010
+  type:                 exitcode-stdio-1.0
+  main-is:              cardano-db-sync-test.hs
+  hs-source-dirs:       test
+
+  other-modules:        Test.Mock.LocalChainSync
+
+  ghc-options:          -Wall
+                        -Werror
+                        -Wcompat
+                        -Wredundant-constraints
+                        -Wincomplete-patterns
+                        -Wincomplete-record-updates
+                        -Wincomplete-uni-patterns
+                        -Wunused-imports
+                        -Wunused-packages
+
+  build-depends:        base                            >= 4.14         && < 4.16
+                      , io-classes
+                      , ouroboros-network
