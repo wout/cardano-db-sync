@@ -1,0 +1,142 @@
+cabal-version:          >= 1.10
+
+-- http://haskell.org/cabal/users-guide/
+
+name:                   cardano-db-gen
+version:                8.0.0
+synopsis:               A fake chain generator for testing cardano DB sync.
+description:            A fake chain generator for testing cardano DB sync.
+homepage:               https://github.com/input-output-hk/cardano-db-sync
+bug-reports:            https://github.com/input-output-hk/cardano-db-sync/issues
+license:                Apache-2.0
+license-file:           LICENSE
+author:                 IOHK Engineering Team
+maintainer:             operations@iohk.io
+copyright:              (c) 2019 IOHK
+category:               Cryptocurrency
+build-type:             Simple
+extra-source-files:     CHANGELOG.md
+
+library
+  default-language:     Haskell2010
+  hs-source-dirs:       src
+
+  ghc-options:          -Wall
+                        -Wcompat
+                        -fwarn-redundant-constraints
+                        -fwarn-incomplete-patterns
+                        -fwarn-unused-imports
+                        -Wincomplete-record-updates
+                        -Wincomplete-uni-patterns
+
+  exposed-modules:
+                        Cardano.Mock.Chain
+                        Cardano.Mock.Server
+                        Cardano.Mock.Types
+
+  build-depends:        base                            >= 4.12         && < 4.15
+                      , aeson
+                      , async
+                      , binary
+                      , base16-bytestring
+                      , bytestring
+                      , cardano-api
+                      , cardano-binary
+                      , cardano-client
+                      , cardano-crypto
+                      , cardano-crypto-class
+                      , cardano-crypto-praos
+                      , cardano-crypto-wrapper
+                      , cardano-db
+                      , cardano-db-sync
+--                      , cardano-ledger
+                      , cardano-ledger-shelley-ma
+                      -- Only for some orphan tracing instances.
+                      , cardano-node
+                      , cardano-prelude
+                      , cardano-slotting
+                      , cborg
+                      , containers
+                      , contra-tracer
+                      , cryptonite
+                      , directory
+                      , esqueleto
+                      , extra
+                      , filepath
+                      , formatting
+                      , io-sim-classes
+                      , iohk-monitoring
+                      , lifted-base
+                      , monad-control
+                      , memory
+                      , monad-logger
+                      , network-mux
+                      , optparse-applicative
+                      , pretty-show
+                      , mtl
+                      , network
+                      , ouroboros-consensus
+                      , ouroboros-consensus-byron
+                      , ouroboros-consensus-cardano
+                      , ouroboros-consensus-shelley
+                      , ouroboros-network
+                      , ouroboros-network-framework
+                      , persistent
+                      , prometheus
+                      , small-steps
+                      , serialise
+                      , shelley-spec-ledger
+                      , split
+                      , stm
+                      , text
+                      , time
+                      , transformers
+                      , transformers-except
+                      , typed-protocols
+                      , unix
+                      , vector
+                      , yaml
+
+test-suite cardano-db-gen
+  type:                 exitcode-stdio-1.0
+  default-language:     Haskell2010
+  main-is:              Main.hs
+  hs-source-dirs:       test
+
+  ghc-options:          -Wall
+                        -Wcompat
+                        -fwarn-redundant-constraints
+                        -fwarn-incomplete-patterns
+                        -fwarn-unused-imports
+                        -Wincomplete-record-updates
+                        -Wincomplete-uni-patterns
+                        -Wno-unsafe
+                        -threaded
+
+
+  other-modules:        Test.QSM
+
+  build-depends:        async
+                      , base                            >= 4.12         && < 4.15
+                      , bytestring
+                      , cardano-config
+                      , cardano-db
+                      , cardano-db-gen
+                      , cardano-db-sync
+                      , cardano-db-sync-extended
+                      , cardano-prelude
+                      , cardano-slotting
+                      , cardano-sync
+                      , io-sim-classes
+                      , mtl
+                      , optparse-applicative
+                      , ouroboros-network
+                      , tasty
+                      , tasty-quickcheck
+                      , text
+                      , tree-diff
+                      , ouroboros-consensus
+                      , ouroboros-consensus-cardano
+                      , ouroboros-consensus-shelley
+                      , QuickCheck
+                      , quickcheck-state-machine >= 0.7
