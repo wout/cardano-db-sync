@@ -100,7 +100,6 @@ library
 
                         Cardano.DbSync.Metrics
 
-                        Cardano.DbSync.Plugin
                         Cardano.DbSync.Plugin.Default
                         Cardano.DbSync.Plugin.Epoch
 

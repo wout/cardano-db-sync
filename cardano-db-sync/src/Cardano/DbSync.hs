@@ -18,7 +18,6 @@ module Cardano.DbSync
   , SocketPath (..)
   , DB.MigrationDir (..)
 
-  , defDbSyncNodePlugin
   , runDbSyncNode
   ) where
 
@@ -29,7 +28,6 @@ import           Cardano.BM.Trace (Trace, logError, logInfo)
 import qualified Cardano.Db as DB
 
 import           Cardano.DbSync.Era (insertValidateGenesisDist)
-import           Cardano.DbSync.Plugin.Default (defDbSyncNodePlugin)
 import           Cardano.DbSync.Rollback (unsafeRollback)
 import           Cardano.DbSync.Database (runDbThread)
 
@@ -37,7 +35,6 @@ import           Cardano.SMASH.Server.PoolApi
 import           Cardano.SMASH.Server.Run
 
 import           Cardano.DbSync.Types
-import           Cardano.DbSync.Plugin (SyncNodePlugin)
 import           Cardano.DbSync.Sync (runSyncNode)
 import           Cardano.DbSync.Config.Types (ConfigFile (..), GenesisFile (..), LedgerStateDir (..),
                    MigrationDir (..), NetworkName (..), SocketPath (..), SyncCommand (..),
@@ -49,10 +46,8 @@ import           Control.Monad.Extra (whenJust)
 
 import           Database.Persist.Postgresql (withPostgresqlConn)
 
-import           Database.Persist.Sql (SqlBackend)
-
-runDbSyncNode :: MetricSetters -> (SqlBackend -> SyncNodePlugin) -> [(Text, Text)] -> SyncNodeParams -> IO ()
-runDbSyncNode metricsSetters mkPlugin knownMigrations params = do
+runDbSyncNode :: MetricSetters -> Bool -> [(Text, Text)] -> SyncNodeParams -> IO ()
+runDbSyncNode metricsSetters extended knownMigrations params = do
 
     -- Read the PG connection info
     pgConfig <- DB.readPGPassFileEnv Nothing
@@ -76,7 +71,7 @@ runDbSyncNode metricsSetters mkPlugin knownMigrations params = do
           void $ unsafeRollback trce slotNo
 
         -- The separation of `cardano-db` and `cardano-sync` is such a *HUGE* pain in the neck.
-        let syncNode = runSyncNode metricsSetters trce (mkPlugin backend)
+        let syncNode = runSyncNode metricsSetters trce backend extended
               params (insertValidateGenesisDist backend) runDbThread
 
         let poolApi = postgresqlPoolApi trce

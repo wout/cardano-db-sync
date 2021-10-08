@@ -4,6 +4,8 @@
 module Cardano.DbSync.Api
   ( SyncEnv (..)
   , LedgerEnv (..)
+  , SyncOptions (..)
+  , mkSyncOptions
   , mkSyncEnvFromConfig
   , verifyFilePoints
   , getTrace
@@ -34,6 +36,8 @@ import qualified Cardano.Chain.Genesis as Byron
 import           Cardano.Crypto.ProtocolMagic
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 
+import           Database.Persist.Sql (SqlBackend)
+
 import           Ouroboros.Consensus.Block.Abstract (HeaderHash, fromRawHash)
 import           Ouroboros.Consensus.BlockchainTime.WallClock.Types (SystemStart (..))
 import           Ouroboros.Consensus.Node.ProtocolInfo (ProtocolInfo)
@@ -47,8 +51,17 @@ data SyncEnv = SyncEnv
   { envProtocol :: !SyncProtocol
   , envNetworkMagic :: !NetworkMagic
   , envSystemStart :: !SystemStart
+  , envBackend :: !SqlBackend
+  , envOptions :: !SyncOptions
   , envLedger :: !LedgerEnv
   }
+
+data SyncOptions = SyncOptions
+  { extended :: Bool
+  }
+
+mkSyncOptions :: Bool -> SyncOptions
+mkSyncOptions = SyncOptions
 
 getTrace :: SyncEnv -> Trace IO Text
 getTrace env = leTrace (envLedger env)
@@ -77,20 +90,22 @@ getDbTipBlockNo = do
     Nothing -> pure Point.Origin
 
 mkSyncEnv
-    :: Trace IO Text -> ProtocolInfo IO CardanoBlock -> Ledger.Network
+    :: Trace IO Text -> SqlBackend -> SyncOptions -> ProtocolInfo IO CardanoBlock -> Ledger.Network
     -> NetworkMagic -> SystemStart -> LedgerStateDir -> EpochSlot
     -> IO SyncEnv
-mkSyncEnv trce protoInfo nw nwMagic systemStart dir stableEpochSlot = do
+mkSyncEnv trce backend syncOptions protoInfo nw nwMagic systemStart dir stableEpochSlot = do
   ledgerEnv <- mkLedgerEnv trce protoInfo dir nw stableEpochSlot
   pure $ SyncEnv
           { envProtocol = SyncProtocolCardano
           , envNetworkMagic = nwMagic
           , envSystemStart = systemStart
+          , envBackend = backend
+          , envOptions = syncOptions
           , envLedger = ledgerEnv
           }
 
-mkSyncEnvFromConfig :: Trace IO Text -> LedgerStateDir -> GenesisConfig -> IO (Either SyncNodeError SyncEnv)
-mkSyncEnvFromConfig trce dir genCfg =
+mkSyncEnvFromConfig :: Trace IO Text -> SqlBackend -> SyncOptions -> LedgerStateDir -> GenesisConfig -> IO (Either SyncNodeError SyncEnv)
+mkSyncEnvFromConfig trce backend syncOptions dir genCfg =
     case genCfg of
       GenesisCardano _ bCfg sCfg _aCfg
         | unProtocolMagicId (Byron.configProtocolMagicId bCfg) /= Shelley.sgNetworkMagic (scConfig sCfg) ->
@@ -106,7 +121,7 @@ mkSyncEnvFromConfig trce dir genCfg =
                 , " /= ", DB.textShow (Shelley.sgSystemStart $ scConfig sCfg)
                 ]
         | otherwise ->
-            Right <$> mkSyncEnv trce (mkProtocolInfoCardano genCfg) (Shelley.sgNetworkId $ scConfig sCfg)
+            Right <$> mkSyncEnv trce backend syncOptions (mkProtocolInfoCardano genCfg) (Shelley.sgNetworkId $ scConfig sCfg)
                         (NetworkMagic . unProtocolMagicId $ Byron.configProtocolMagicId bCfg)
                         (SystemStart .Byron.gdStartTime $ Byron.configGenesisData bCfg)
                         dir (calculateStableEpochSlot $ scConfig sCfg)

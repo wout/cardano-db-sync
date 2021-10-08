@@ -3,8 +3,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Cardano.DbSync.Plugin.Default
-  ( defDbSyncNodePlugin
-  , insertDefaultBlock
+  ( insertDefaultBlock
   , rollbackToPoint
   ) where
 
@@ -28,7 +27,7 @@ import           Cardano.DbSync.Rollback (rollbackToPoint)
 import           Cardano.DbSync.Api
 import           Cardano.DbSync.Error
 import           Cardano.DbSync.LedgerState
-import           Cardano.DbSync.Plugin
+import           Cardano.DbSync.Plugin.Epoch
 import           Cardano.DbSync.Types
 import           Cardano.DbSync.Util
 
@@ -55,31 +54,23 @@ import           Ouroboros.Consensus.Cardano.Block (HardForkBlock (..))
 
 import           System.IO.Unsafe (unsafePerformIO)
 
--- | The default SyncNodePlugin.
--- Does exactly what the cardano-db-sync node did before the plugin system was added.
--- The non-default node takes this structure and extends the lists.
-defDbSyncNodePlugin :: SqlBackend -> SyncNodePlugin
-defDbSyncNodePlugin backend =
-  SyncNodePlugin
-    { plugOnStartup = []
-    , plugInsertBlock = [insertDefaultBlock backend]
-    , plugRollbackBlock = [rollbackToPoint backend]
-    }
-
--- -------------------------------------------------------------------------------------------------
-
 insertDefaultBlock
-    :: SqlBackend -> Trace IO Text -> SyncEnv -> [BlockDetails]
+    :: SyncEnv -> [BlockDetails]
     -> IO (Either SyncNodeError ())
-insertDefaultBlock backend tracer env blockDetails = do
+insertDefaultBlock env blockDetails = do
     thisIsAnUglyHack tracer (envLedger env)
-    DB.runDbIohkLogging backend tracer $
-      runExceptT (traverse_ insert blockDetails)
+    DB.runDbIohkLogging backend tracer $ runExceptT $ do
+      traverse_ insertDetails blockDetails
+      when (extended $ envOptions env) $
+        traverse_ (ExceptT . epochInsert tracer) blockDetails
   where
-    insert
+    tracer = getTrace env
+    backend = envBackend env
+
+    insertDetails
         :: (MonadBaseControl IO m, MonadIO m)
         => BlockDetails -> ExceptT SyncNodeError (ReaderT SqlBackend m) ()
-    insert (BlockDetails cblk details) = do
+    insertDetails (BlockDetails cblk details) = do
       -- Calculate the new ledger state to pass to the DB insert functions but do not yet
       -- update ledgerStateVar.
       let lenv = envLedger env
