@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -12,24 +13,219 @@ module Test.Mock.LocalChainSync
   , playChainFragment
   ) where
 
-import           Control.Monad.Class.MonadSTM.Strict
+import           Data.List (nub)
 
-import           Ouroboros.Network.Block (HasHeader (..), HeaderHash, Tip (..), castPoint, castTip,
-                   genesisPoint)
+import           Control.Monad.Class.MonadAsync
+import           Control.Monad.Class.MonadSTM.Strict
+import           Control.Monad.Class.MonadTimer
+
+import           Cardano.Slotting.Slot
+
+import           Network.TypedProtocol.Proofs (connect)
+
+import           Ouroboros.Network.Block (HasHeader (..), HeaderHash, Tip (..),
+                   castPoint, castTip, genesisPoint)
+import qualified Ouroboros.Network.Block as Block
+import           Ouroboros.Network.MockChain.Chain (Chain (..))
+-- import           Ouroboros.Network.Point (WithOrigin (..))
 import           Ouroboros.Network.MockChain.Chain (ChainUpdate (..), Point (..))
 import qualified Ouroboros.Network.MockChain.Chain as Chain
-import           Ouroboros.Network.MockChain.ProducerState (ChainProducerState, FollowerId)
+import           Ouroboros.Network.MockChain.ProducerState (ChainProducerState (..),
+                   FollowerId)
 import qualified Ouroboros.Network.MockChain.ProducerState as ChainProducerState
+import           Ouroboros.Network.Protocol.ChainSync.Client (ChainSyncClient,
+                   chainSyncClientPeer)
 import           Ouroboros.Network.Protocol.ChainSync.Server (ChainSyncServer (..),
-                   ServerStIdle (..), ServerStIntersect (..), ServerStNext (..))
+                   ServerStIdle (..), ServerStIntersect (..), ServerStNext (..),
+                   chainSyncServerPeer)
+
+import           Test.QuickCheck
+import qualified Debug.Trace as Debug
 
 
-data ChainAction header
-  = ChainBlock !(ChainProducerState header)
-  | ChainRollback !Word
+data Config blk = Config {
+    cfgChain        :: [blk]
+    -- ^ a pre-generated list of blocks from which the server will take blocks
+    -- and apply them to its chain after applying 'cfgFixuBlock'.  This list is
+    -- consumed from left to right (oldest to newest).
 
-playChainFragment :: config -> [ChainAction header] -> IO ()
-playChainFragment _config _xs = pure ()
+  , cfgFixupBlock   :: WithOrigin blk
+                    -- ^ previous block, or the origin
+                    -> blk
+                    -- ^ header to fix
+                    -> blk
+    -- ^ fix a block so it applies onto the previous one.  This gives a way to
+    -- preserve a chain invariant.
+
+  , cfgSlotDuration :: DiffTime
+    -- ^ slot length, in seconds
+  }
+
+
+data ChainAction
+  = RollForward
+  | RollBackward !SlotNo
+  -- ^ we need 'Point' to make rollbacks, but it would be more difficult to
+  -- generate them.
+  --
+  -- Note: the generator does not make sure that the slot has a block, and this
+  -- is required to make a successful rollback.  There ought to be a test which
+  -- validates this property for generated data.
+  deriving (Eq, Show)
+
+
+genChainAction :: Gen ChainAction
+genChainAction =
+    frequency [ (3, pure RollForward)
+              , (1, RollBackward . SlotNo <$> arbitrary)
+              ]
+
+
+-- | A stateful shrinker for a 'ChainAction'.   The 'SlotNo' is the current
+-- 'SlotNo'.
+--
+shrinkChainAction :: SlotNo -> ChainAction -> [ChainAction]
+shrinkChainAction _            RollForward = []
+shrinkChainAction currentSlot (RollBackward slot) =
+      Debug.traceShow (slot, currentSlot) $
+      if succ slot < currentSlot
+        -- make the fork shallower
+        then nub
+           $ [ RollBackward (succ slot)
+             , RollBackward $ SlotNo ( unSlotNo slot
+                                     + unSlotNo (currentSlot - slot) `div` 2
+                                     )
+             ]
+        else [RollForward]
+
+
+-- | A list of 'ChainActions'.  Unlike a 'Chain' list of chain actions is more
+-- naturally a right associative list, e.g. actions are applied from left to
+-- right.
+--
+newtype ChainActions = ChainActions [ChainAction]
+  deriving Show
+
+
+-- | Annotate list of 'ChainAction' with slot numbers (before the transition).
+--
+withSlots :: [ChainAction] -> [(SlotNo, ChainAction)]
+withSlots = go (SlotNo 0)
+  where
+    go :: SlotNo -> [ChainAction] -> [(SlotNo, ChainAction)]
+    go !_slotNo [] = []
+    go !slotNo (a@RollForward : as) =
+      (slotNo, a) : go (succ slotNo) as
+    go !slotNo  (a@(RollBackward slot) : as) =
+      (slotNo, a) : go slot as
+
+
+fixupChainActions :: [ChainAction] -> [ChainAction]
+fixupChainActions = fixupRollbacks (SlotNo 0) . fixupHead
+  where
+    -- list of chain actions must either be empty or start with 'RollForward'
+    fixupHead :: [ChainAction] -> [ChainAction]
+    fixupHead [] = []
+    fixupHead as@(RollForward    :  _) = as
+    fixupHead    (RollBackward _ : as) = fixupHead as
+
+    -- rollbacks cannot go passed genesis;  Ouroboros further restricts how deep
+    -- they can be.
+    fixupRollbacks :: SlotNo
+       -- ^ current slot
+       -> [ChainAction]
+       -> [ChainAction]
+    fixupRollbacks _currSlot [] = []
+
+    fixupRollbacks !currSlot (a@RollForward : as) =
+        a : fixupRollbacks (succ currSlot) as
+
+    fixupRollbacks !currSlot (RollBackward slot : as) =
+        RollBackward slot' : fixupRollbacks slot' as
+      where
+        slot' = slot `min` pred currSlot
+
+
+instance Arbitrary ChainActions where
+    arbitrary = ChainActions
+              . fixupChainActions
+            <$> listOf genChainAction
+
+    -- todo: this shrink function might produce the same result twice.
+    shrink (ChainActions as) =
+          map (ChainActions . fixupChainActions . map snd)
+        . shrinkList
+            (\(slot, action) ->
+              [ (slot, action')
+              | action' <- shrinkChainAction slot action
+              ])
+        . withSlots
+        $ as
+  
+
+
+playChainFragment :: forall blk m a.
+                     ( MonadAsync m
+                     , MonadDelay m
+                     , HasHeader blk
+                     )
+                  => Config blk
+                  -> ChainActions
+                  -> ChainSyncClient blk (Point blk) (Tip blk) m a
+                  -> m a
+playChainFragment Config { cfgChain, cfgFixupBlock, cfgSlotDuration }
+                 (ChainActions chainActions0)
+                 chainSyncClient = do
+    cpsvar <- newTVarIO (ChainProducerState.initChainProducerState Genesis)
+    snd <$>
+      serverDriver cpsvar chainActions0 cfgChain
+      `concurrently`
+      ((\(a, _, _) -> a) <$>
+        -- run the client against server without any network in between,
+        -- like a consumer stream against a producer.
+        chainSyncClientPeer chainSyncClient
+        `connect`
+        chainSyncServerPeer (chainSyncServerExample () cpsvar))
+  where
+    serverDriver :: StrictTVar m (ChainProducerState blk)
+                 -> [ChainAction]
+                 -> [blk]
+                 -> m ()
+    serverDriver _cpsvar [] _chain = return ()
+
+    serverDriver  cpsvar (RollForward : chainActions) (block : blocks) = do
+      atomically $ do
+        cps@ChainProducerState { chainState } <- readTVar cpsvar
+        case chainState of
+          Genesis ->
+            writeTVar cpsvar (ChainProducerState.addBlock
+                               (cfgFixupBlock Origin block) cps)
+          _ :> blk ->
+            writeTVar cpsvar (ChainProducerState.addBlock
+                               (cfgFixupBlock (At blk) block) cps)
+      threadDelay cfgSlotDuration
+      serverDriver cpsvar chainActions blocks
+
+    serverDriver cpsvar (RollForward : chainActions) [] =
+      serverDriver cpsvar chainActions []
+
+    serverDriver  cpsvar (RollBackward slot : chainActions) blocks = do
+      atomically $ do
+        cps <- readTVar cpsvar
+        -- we need 'Point' to apply the rollback, find it on the chain
+        case Chain.findBlock (\blk -> Block.blockSlot blk == slot)
+                             (ChainProducerState.chainState cps) of
+          -- TODO: a better error; it should be guaranteed by the generated data
+          -- that this does not happen.
+          Nothing  -> error "serverDriver: slot not found in the chain"
+          Just blk ->
+            case ChainProducerState.rollback (Chain.blockPoint blk :: Point blk) cps of
+              Just cps' -> writeTVar cpsvar cps'
+              Nothing   -> error "serverDriver: impossible happened"
+      threadDelay cfgSlotDuration
+      serverDriver cpsvar chainActions blocks
+
+
 
 chainSyncServerExample
     :: forall blk header m a.

@@ -190,4 +190,7 @@ test-suite cardano-db-sync-test
 
   build-depends:        base                            >= 4.14         && < 4.16
                       , io-classes
+                      , typed-protocols
+                      , cardano-slotting
                       , ouroboros-network
+                      , QuickCheck
