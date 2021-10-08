@@ -10,7 +10,7 @@ import           Control.Monad.Trans.Except.Extra (firstExceptT, newExceptT)
 
 import qualified Cardano.Db as DB
 
-import           Cardano.Sync.Error
+import           Cardano.DbSync.Error
 
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Text.Encoding as Text

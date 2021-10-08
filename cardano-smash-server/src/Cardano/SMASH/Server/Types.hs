@@ -36,9 +36,6 @@ import           Cardano.Api.Shelley    (StakePoolKey)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8  as BSC
 import           Quiet                  (Quiet (..))
--- import           Cardano.SMASH.Db.Error
--- import           Cardano.SMASH.Db.Types
--- import           Cardano.Sync.Types (PoolMetaHash (..), PoolMetaHex (..))
 
 -- | The stake pool identifier. It is the hash of the stake pool operator's
 -- vkey.

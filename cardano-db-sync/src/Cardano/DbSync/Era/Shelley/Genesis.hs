@@ -24,8 +24,8 @@ import qualified Cardano.Db as DB
 
 import qualified Cardano.DbSync.Era.Shelley.Generic.Util as Generic
 import           Cardano.DbSync.Era.Util (liftLookupFail)
-import           Cardano.Sync.Error
-import           Cardano.Sync.Util
+import           Cardano.DbSync.Error
+import           Cardano.DbSync.Util
 
 import qualified Cardano.Ledger.Address as Ledger
 import qualified Cardano.Ledger.Coin as Ledger
