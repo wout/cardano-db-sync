@@ -177,6 +177,7 @@ test-suite cardano-db-sync-test
   hs-source-dirs:       test
 
   other-modules:        Test.Mock.LocalChainSync
+                        Test.Mock.Config.Byron
 
   ghc-options:          -Wall
                         -Werror
@@ -189,8 +190,13 @@ test-suite cardano-db-sync-test
                         -Wunused-packages
 
   build-depends:        base                            >= 4.14         && < 4.16
+                      , cardano-crypto-wrapper
+                      , cardano-ledger-byron
+                      , cardano-prelude
+                      , containers
                       , io-classes
                       , typed-protocols
                       , cardano-slotting
                       , ouroboros-network
                       , QuickCheck
+                      , time
