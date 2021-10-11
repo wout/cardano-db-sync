@@ -195,8 +195,6 @@ test-suite cardano-db-sync-test
                       , cardano-prelude
                       , containers
                       , io-classes
-                      , typed-protocols
-                      , cardano-slotting
                       , ouroboros-network
-                      , QuickCheck
                       , time
+                      , typed-protocols
