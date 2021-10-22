@@ -178,6 +178,7 @@ test-suite cardano-db-sync-test
 
   other-modules:        Test.Mock.LocalChainSync
                         Test.Mock.Config.Byron
+                        Test.Mock.Runner
 
   ghc-options:          -Wall
                         -Werror

@@ -261,7 +261,7 @@ dbSyncProtocols trce env metricsSetters plugin queryVar runDBThreadFunction vers
                 (cChainSyncCodec codecs)
                 channel
                 (chainSyncClientPeerPipelined
-                    $ chainSyncClient plugin metricsSetters trce env queryVar latestPoints currentTip actionQueue)
+                    $ chainSyncClient metricsSetters trce env queryVar latestPoints currentTip actionQueue)
             )
 
         atomically $ writeDbActionQueue actionQueue DbFinish
@@ -335,8 +335,7 @@ getCurrentTipBlockNo dataLayer = do
 -- be correct. This is not an issue, because we only use it for performance reasons
 -- in the pipeline policy.
 chainSyncClient
-    :: SyncNodePlugin
-    -> MetricSetters
+    :: MetricSetters
     -> Trace IO Text
     -> SyncEnv
     -> StateQueryTMVar CardanoBlock (Interpreter (CardanoEras StandardCrypto))
@@ -344,7 +343,7 @@ chainSyncClient
     -> WithOrigin BlockNo
     -> DbActionQueue
     -> ChainSyncClientPipelined CardanoBlock (Point CardanoBlock) (Tip CardanoBlock) IO ()
-chainSyncClient _plugin metricsSetters trce env queryVar latestPoints currentTip actionQueue = do
+chainSyncClient metricsSetters trce env queryVar latestPoints currentTip actionQueue = do
     ChainSyncClientPipelined $ pure $ clientPipelinedStIdle currentTip latestPoints
   where
     clientPipelinedStIdle
