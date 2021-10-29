@@ -31,6 +31,7 @@ module Cardano.Db.Query
   , queryLatestBlockId
   , queryLatestBlockNo
   , queryLatestSlotNo
+  , queryMaxEpochSlotInEpoch
   , queryMeta
   , queryMultiAssetId
   , queryNetworkName
@@ -418,7 +419,7 @@ queryLatestEpochNo = do
             orderBy [desc (blk ^. BlockEpochNo)]
             limit 1
             pure (blk ^. BlockEpochNo)
-  pure $ fromMaybe 0 (listToMaybe $ mapMaybe unValue res)
+  pure $ fromMaybe 0 (unValue =<< listToMaybe res)
 
 -- | Get the latest slot number
 queryLatestSlotNo :: MonadIO m => ReaderT SqlBackend m Word64
@@ -428,15 +429,22 @@ queryLatestSlotNo = do
             orderBy [desc (blk ^. BlockSlotNo)]
             limit 1
             pure $ blk ^. BlockSlotNo
-  pure $ fromMaybe 0 (listToMaybe $ mapMaybe unValue res)
+  pure $ fromMaybe 0 (unValue =<< listToMaybe res)
+
+queryMaxEpochSlotInEpoch :: MonadIO m => Word64 -> ReaderT SqlBackend m Word64
+queryMaxEpochSlotInEpoch epochNum = do
+  res <- select . from $ \ blk -> do
+            where_ (blk ^. BlockEpochNo ==. just (val epochNum))
+            pure $ max_ (blk ^. BlockEpochSlotNo)
+  pure $ fromMaybe 0 (join $ unValue =<< listToMaybe res)
 
 -- | Given a 'SlotNo' return the 'SlotNo' of the previous block.
 queryPreviousSlotNo :: MonadIO m => Word64 -> ReaderT SqlBackend m (Maybe Word64)
 queryPreviousSlotNo slotNo = do
   res <- select . from $ \ (blk `InnerJoin` pblk) -> do
-                on (blk ^. BlockPreviousId ==. just (pblk ^. BlockId))
-                where_ (blk ^. BlockSlotNo ==. just (val slotNo))
-                pure $ pblk ^. BlockSlotNo
+            on (blk ^. BlockPreviousId ==. just (pblk ^. BlockId))
+            where_ (blk ^. BlockSlotNo ==. just (val slotNo))
+            pure $ pblk ^. BlockSlotNo
   pure $ unValue =<< listToMaybe res
 
 querySchemaVersion :: MonadIO m => ReaderT SqlBackend m (Maybe SchemaVersion)
