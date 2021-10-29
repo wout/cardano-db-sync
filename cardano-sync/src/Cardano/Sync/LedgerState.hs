@@ -152,6 +152,7 @@ data LedgerEnv = LedgerEnv
   , leOfflineResultQueue :: !(TBQueue IO FetchResult)
   , leEpochSyncTime :: !(StrictTVar IO UTCTime)
   , leStableEpochSlot :: !EpochSlot
+  , lsRewardsDoneEpochSlot :: !EpochSlot
   }
 
 data LedgerEventState = LedgerEventState
@@ -211,9 +212,9 @@ ledgerDbCurrent = either id id . AS.head . ledgerDbCheckpoints
 
 mkLedgerEnv
     :: Trace IO Text -> Consensus.ProtocolInfo IO CardanoBlock -> LedgerStateDir
-    -> Ledger.Network -> EpochSlot
+    -> Ledger.Network -> EpochSlot -> EpochSlot
     -> IO LedgerEnv
-mkLedgerEnv trce protocolInfo dir nw stableEpochSlot = do
+mkLedgerEnv trce protocolInfo dir nw stableEpochSlot rewardsDoneEpochSlot = do
     svar <- newTVarIO Nothing
     evar <- newTVarIO initLedgerEventState
     ivar <- newTVarIO $ IndexCache mempty mempty
@@ -240,6 +241,7 @@ mkLedgerEnv trce protocolInfo dir nw stableEpochSlot = do
       , leOfflineResultQueue  = orq
       , leEpochSyncTime = est
       , leStableEpochSlot = stableEpochSlot
+      , lsRewardsDoneEpochSlot = rewardsDoneEpochSlot
       }
   where
     initLedgerEventState :: LedgerEventState

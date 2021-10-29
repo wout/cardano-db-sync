@@ -60,10 +60,10 @@ data SyncDataLayer = SyncDataLayer
 
 mkSyncEnv
     :: SyncDataLayer -> Trace IO Text -> ProtocolInfo IO CardanoBlock -> Ledger.Network
-    -> NetworkMagic -> SystemStart -> LedgerStateDir -> EpochSlot
+    -> NetworkMagic -> SystemStart -> LedgerStateDir -> EpochSlot -> EpochSlot
     -> IO SyncEnv
-mkSyncEnv dataLayer trce protoInfo nw nwMagic systemStart dir stableEpochSlot = do
-  ledgerEnv <- mkLedgerEnv trce protoInfo dir nw stableEpochSlot
+mkSyncEnv dataLayer trce protoInfo nw nwMagic systemStart dir stableEpochSlot rewardsDoneEpochSlot = do
+  ledgerEnv <- mkLedgerEnv trce protoInfo dir nw stableEpochSlot rewardsDoneEpochSlot
   pure $ SyncEnv
           { envProtocol = SyncProtocolCardano
           , envNetworkMagic = nwMagic
@@ -93,6 +93,7 @@ mkSyncEnvFromConfig trce dataLayer dir genCfg =
                         (NetworkMagic . unProtocolMagicId $ Byron.configProtocolMagicId bCfg)
                         (SystemStart .Byron.gdStartTime $ Byron.configGenesisData bCfg)
                         dir (calculateStableEpochSlot $ scConfig sCfg)
+                        (calculateRewardsDoneEpochSlot $ scConfig sCfg)
 
 
 getLatestPoints :: SyncEnv -> IO [CardanoPoint]
@@ -129,8 +130,18 @@ verifyFilePoints env files =
 --
 -- Hopefully lower level libraries will be able to provide us with something better than this soon.
 calculateStableEpochSlot :: Shelley.ShelleyGenesis era -> EpochSlot
-calculateStableEpochSlot cfg =
-    EpochSlot $ ceiling (7.0 * secParam / actSlotCoeff)
+calculateStableEpochSlot cfg = EpochSlot $ ceiling (7.0 * deciEpoch cfg)
+
+-- The rewards should have been calculayed by this time. If they are not, the rewards table may
+-- not be complete.
+calculateRewardsDoneEpochSlot :: Shelley.ShelleyGenesis era -> EpochSlot
+calculateRewardsDoneEpochSlot cfg = EpochSlot $ ceiling (8.0 * deciEpoch cfg)
+
+-- One deci-epoch is 1/10 of an epoch.
+-- One deci-epoch is k / f.
+deciEpoch :: Shelley.ShelleyGenesis era -> Double
+deciEpoch cfg =
+    secParam / actSlotCoeff
   where
     secParam :: Double
     secParam = fromIntegral $ Shelley.sgSecurityParam cfg

@@ -11,7 +11,7 @@ module Cardano.DbSync.Plugin.Default
 
 import           Cardano.Prelude
 
-import           Cardano.BM.Trace (Trace, logDebug, logInfo)
+import           Cardano.BM.Trace (Trace, logDebug, logError, logInfo)
 
 import qualified Cardano.Db as DB
 
@@ -161,6 +161,7 @@ handleLedgerEvents tracer lenv point =
       case ev of
         LedgerNewEpoch en ss -> do
           lift $ do
+            validateRewardsAreDone tracer lenv en
             insertEpochSyncTime en ss (leEpochSyncTime lenv)
             adjustEpochRewards tracer en
           finalizeEpochBulkOps lenv
@@ -218,6 +219,28 @@ hasEpochStartEvent = any isNewEpoch
         LedgerNewEpoch {} -> True
         LedgerStartAtEpoch {} -> True
         _otherwise -> False
+
+-- -------------------------------------------------------------------------------------------------
+-- This is kind of nasty. We should do better.
+
+validateRewardsAreDone
+    :: (MonadBaseControl IO m, MonadIO m)
+    => Trace IO Text -> LedgerEnv -> EpochNo -> ReaderT SqlBackend m ()
+validateRewardsAreDone tracer lenv epochNo = do
+    latest <- EpochSlot <$> DB.queryMaxEpochSlotInEpoch (unEpochNo epochNo - 1)
+    when (latest < lsRewardsDoneEpochSlot lenv) . liftIO $ do
+      let msg = mkMsg latest (lsRewardsDoneEpochSlot lenv)
+      logError tracer msg
+      -- This only happens when there are *ZERO* blocks in the last 20% of an epoch.
+      panicAbort msg
+  where
+    mkMsg :: EpochSlot -> EpochSlot -> Text
+    mkMsg actual atLeast =
+      mconcat
+        [ "validateRewardsAreDone: Latest slot within epoch ", textShow (unEpochNo epochNo)
+        , " is ", textShow (unEpochSlot actual), " but needs to be at least "
+        , textShow (unEpochSlot atLeast)
+        ]
 
 -- -------------------------------------------------------------------------------------------------
 -- These two functions must handle being called in either order.
