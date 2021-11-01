@@ -47,7 +47,7 @@ import           Ouroboros.Consensus.TypeFamilyWrappers
 
 
 data LedgerEvent
-  = LedgerNewEpoch !EpochNo !SyncState
+  = LedgerNewEpoch !BlockEra !EpochNo !SyncState
   | LedgerStartAtEpoch !EpochNo
   | LedgerRewards !SlotDetails !Generic.Rewards
   | LedgerStakeDist !Generic.StakeDist

@@ -161,13 +161,14 @@ handleLedgerEvents tracer lenv point =
       case ev of
         LedgerNewEpoch en ss -> do
           lift $ do
-            validateRewardsAreDone tracer lenv en
             insertEpochSyncTime en ss (leEpochSyncTime lenv)
             adjustEpochRewards tracer en
           finalizeEpochBulkOps lenv
           -- Commit everything in the db *AFTER* the epoch rewards have been inserted, the orphaned
           -- rewards removed and the bulk operations finalized.
-          lift DB.transactionCommit
+          lift $ do
+            DB.transactionCommit
+            validateRewardsAreDone tracer lenv en
           liftIO . logInfo tracer $ "Starting epoch " <> textShow (unEpochNo en)
         LedgerStartAtEpoch en ->
           -- This is different from the previous case in that the db-sync started
@@ -237,7 +238,7 @@ validateRewardsAreDone tracer lenv epochNo = do
     mkMsg :: EpochSlot -> EpochSlot -> Text
     mkMsg actual atLeast =
       mconcat
-        [ "validateRewardsAreDone: Latest slot within epoch ", textShow (unEpochNo epochNo)
+        [ "validateRewardsAreDone: Latest slot within epoch ", textShow (unEpochNo epochNo - 1)
         , " is ", textShow (unEpochSlot actual), " but needs to be at least "
         , textShow (unEpochSlot atLeast)
         ]
