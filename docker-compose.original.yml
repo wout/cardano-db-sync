@@ -22,7 +22,7 @@ services:
         max-file: "10"
 
   cardano-node:
-    image: inputoutput/cardano-node:1.32.1
+    image: inputoutput/cardano-node:1.31.0
     environment:
       - NETWORK=${NETWORK:-mainnet}
     volumes:
@@ -32,14 +32,12 @@ services:
     logging:
       driver: "json-file"
       options:
-        compress: "true"
         max-size: "200k"
         max-file: "10"
 
-  cardano-db-sync-extended:
+  cardano-db-sync:
     image: inputoutput/cardano-db-sync:12.0.0
     environment:
-      - EXTENDED=true
       - NETWORK=${NETWORK:-mainnet}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -62,29 +60,6 @@ services:
         max-size: "200k"
         max-file: "10"
 
-  cardano-wallet:
-    image: inputoutput/cardano-wallet:2021.12.15
-    volumes:
-      - wallet-${NETWORK}-db:/wallet-db
-      - node-ipc:/ipc
-    ports:
-      - 8090:8090
-    entrypoint: []
-    command: bash -c "
-        ([[ $$NETWORK == \"mainnet\" ]] && $$CMD --mainnet) ||
-        ($$CMD --testnet /config/${NETWORK}/genesis-byron.json)
-      "
-    environment:
-      CMD: "cardano-wallet serve --node-socket /ipc/node.socket --database /wallet-db --listen-address 0.0.0.0"
-      NETWORK:
-    restart: on-failure
-    logging:
-      driver: "json-file"
-      options:
-        compress: "true"
-        max-file: "10"
-        max-size: "50m"
-
 secrets:
   postgres_db:
     file: ./config/secrets/postgres_db
@@ -95,13 +70,6 @@ secrets:
 
 volumes:
   db-sync-data:
-  node-alonzo-purple-db:
-  node-config:
+  postgres:
   node-db:
   node-ipc:
-  node-mainnet-db:
-  node-testnet-db:
-  postgres:
-  wallet-alonzo-purple-db:
-  wallet-mainnet-db:
-  wallet-testnet-db:
