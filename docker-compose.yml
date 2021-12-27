@@ -65,7 +65,7 @@ services:
   cardano-wallet:
     image: inputoutput/cardano-wallet:2021.12.15
     volumes:
-      - wallet-${NETWORK}-db:/wallet-db
+      - wallet-${NETWORK:-mainnet}-db:/wallet-db
       - node-ipc:/ipc
     ports:
       - 8090:8090
