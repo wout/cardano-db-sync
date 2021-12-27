@@ -75,8 +75,8 @@ services:
         ($$CMD --testnet /config/${NETWORK}/genesis-byron.json)
       "
     environment:
-      CMD: "cardano-wallet serve --node-socket /ipc/node.socket --database /wallet-db --listen-address 0.0.0.0"
-      NETWORK:
+      - CMD="cardano-wallet serve --node-socket /ipc/node.socket --database /wallet-db --listen-address 0.0.0.0"
+      - NETWORK=${NETWORK:-mainnet}
     restart: on-failure
     logging:
       driver: "json-file"
